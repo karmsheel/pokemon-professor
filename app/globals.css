@@ -247,6 +247,20 @@ label {
   align-self: flex-start;
 }
 
+.chat-bubble-system {
+  align-self: center;
+  max-width: 100%;
+  background: #1a1f2a;
+  border-color: #3a4258;
+  border-style: dashed;
+  text-align: center;
+}
+
+.chat-bubble-system .chat-bubble-body {
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
 .chat-bubble-role {
   font-size: 0.68rem;
   text-transform: uppercase;

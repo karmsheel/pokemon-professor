@@ -200,11 +200,17 @@ async function bootstrap() {
     }
   );
   ipcMain.handle("studio:setMode", async (_e, next: ControlMode) => {
+    const prev = mode.get();
     mode.set(next);
-    if (currentRunId) {
-      store.appendEvent(currentRunId, {
-        type: `mode_${next}`,
-      });
+    if (currentRunId && prev !== next) {
+      // Nudge/Resume coach loop events (Task 10)
+      if (next === "nudge") {
+        store.appendEvent(currentRunId, { type: "override_nudge_start" });
+      } else if (next === "agent") {
+        store.appendEvent(currentRunId, { type: "override_nudge_end" });
+      } else if (next === "drive") {
+        store.appendEvent(currentRunId, { type: "mode_drive" });
+      }
     }
     return mode.get();
   });

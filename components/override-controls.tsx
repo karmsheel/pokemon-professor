@@ -23,6 +23,18 @@ const KEY_MAP: Record<string, string> = {
   Shift: "SELECT",
 };
 
+function modePillClass(mode: ControlMode): string {
+  if (mode === "agent") return "status-pill ok";
+  if (mode === "nudge") return "status-pill warn";
+  return "status-pill warn";
+}
+
+function modeLabel(mode: ControlMode): string {
+  if (mode === "agent") return "agent";
+  if (mode === "nudge") return "nudge — tools frozen";
+  return "drive — human control";
+}
+
 export function OverrideControls({
   mode,
   onModeChange,
@@ -85,6 +97,16 @@ export function OverrideControls({
     <section className="panel">
       <h2>Override</h2>
       <div className="stack">
+        <div
+          className={modePillClass(mode)}
+          data-testid="mode-badge"
+          aria-live="polite"
+          title="Current control mode"
+        >
+          <span className="dot" />
+          mode: {modeLabel(mode)}
+        </div>
+
         <div className="row">
           <button
             type="button"
@@ -116,19 +138,20 @@ export function OverrideControls({
           </button>
         </div>
 
-        <div className="status-pill ok">
-          <span className="dot" />
-          mode: {mode}
-        </div>
-
         {mode === "drive" ? (
           <p className="muted">
             Keys: arrows move · Z = A · X = B · Enter = START · Shift = SELECT.
             Input uses IPC <code>driveInput</code> (not POST /input).
           </p>
+        ) : mode === "nudge" ? (
+          <p className="muted">
+            Nudge freezes agent tools (POST /input → 409). Chat still works for
+            coaching; Resume Agent to unfreeze.
+          </p>
         ) : (
           <p className="muted">
-            Nudge pauses agent control. Drive enables local keys via IPC.
+            Agent mode: Hermes/skill may POST /input. Nudge pauses tools; Drive
+            enables local keys via IPC.
           </p>
         )}
 

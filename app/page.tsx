@@ -96,7 +96,7 @@ export default function StudioPage() {
         </div>
         <OverrideControls mode={mode} onModeChange={setMode} />
       </div>
-      <ChatBar />
+      <ChatBar mode={mode} />
     </div>
   );
 }

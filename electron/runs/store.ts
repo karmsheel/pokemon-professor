@@ -54,6 +54,13 @@ export class RunStore {
   ): Mission {
     const run = this.get(runId);
     if (!run) throw new Error("run not found");
+    // Starting a new mission while one is active pauses the previous
+    // (unless it was already done/aborted).
+    for (const existing of run.missions) {
+      if (existing.status === "active") {
+        existing.status = "paused";
+      }
+    }
     const mission: Mission = {
       id: randomUUID(),
       prompt: opts.prompt,

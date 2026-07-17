@@ -10,6 +10,7 @@ import {
 } from "react";
 
 type Role = "user" | "assistant" | "system";
+type ControlMode = "agent" | "nudge" | "drive";
 
 type UiMessage = {
   id: string;
@@ -23,6 +24,10 @@ type HermesHealth = {
   hint?: string;
 };
 
+type ChatBarProps = {
+  mode?: ControlMode;
+};
+
 function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -30,7 +35,18 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function ChatBar() {
+function modeSystemNote(mode: ControlMode): string {
+  if (mode === "nudge") return "Agent tools frozen (nudge)";
+  if (mode === "drive") return "Agent tools frozen (drive)";
+  return "Agent tools resumed";
+}
+
+function modeBadgeClass(mode: ControlMode): string {
+  if (mode === "agent") return "status-pill ok";
+  return "status-pill warn";
+}
+
+export function ChatBar({ mode = "agent" }: ChatBarProps) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -38,6 +54,7 @@ export function ChatBar() {
   const [statusNote, setStatusNote] = useState<string>("checking Hermes…");
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const prevModeRef = useRef<ControlMode | null>(null);
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -48,6 +65,24 @@ export function ChatBar() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, sending, scrollToBottom]);
+
+  // System note when control mode changes (skip first paint).
+  useEffect(() => {
+    if (prevModeRef.current === null) {
+      prevModeRef.current = mode;
+      return;
+    }
+    if (prevModeRef.current === mode) return;
+    prevModeRef.current = mode;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newId(),
+        role: "system",
+        content: modeSystemNote(mode),
+      },
+    ]);
+  }, [mode]);
 
   // Poll Hermes via our proxy so CORS never blocks; never touches emulator UI.
   useEffect(() => {
@@ -97,7 +132,12 @@ export function ChatBar() {
         content: trimmed,
       };
 
+      // History for Hermes: user + assistant only (system notes are UI-only).
       const history = [...messages, userMsg];
+      const apiMessages = history
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role, content: m.content }));
+
       setMessages(history);
       setDraft("");
       setSending(true);
@@ -108,10 +148,7 @@ export function ChatBar() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: history.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
+            messages: apiMessages,
           }),
         });
 
@@ -178,6 +215,18 @@ export function ChatBar() {
     }
   };
 
+  const bubbleClass = (role: Role) => {
+    if (role === "user") return "chat-bubble chat-bubble-user";
+    if (role === "system") return "chat-bubble chat-bubble-system";
+    return "chat-bubble chat-bubble-assistant";
+  };
+
+  const roleLabel = (role: Role) => {
+    if (role === "user") return "Professor";
+    if (role === "system") return "System";
+    return "Hermes";
+  };
+
   return (
     <footer className="chat-bar">
       <div className="chat-bar-header">
@@ -188,6 +237,14 @@ export function ChatBar() {
           >
             <span className="dot" />
             {connected ? "Hermes" : "Hermes offline"}
+          </span>
+          <span
+            className={modeBadgeClass(mode)}
+            data-testid="chat-mode-badge"
+            title="Control mode"
+          >
+            <span className="dot" />
+            mode: {mode}
           </span>
           <span className="muted" style={{ fontSize: "0.75rem" }}>
             {statusNote}
@@ -203,13 +260,8 @@ export function ChatBar() {
           </p>
         ) : (
           messages.map((m) => (
-            <div
-              key={m.id}
-              className={`chat-bubble chat-bubble-${m.role === "user" ? "user" : "assistant"}`}
-            >
-              <div className="chat-bubble-role">
-                {m.role === "user" ? "Professor" : "Hermes"}
-              </div>
+            <div key={m.id} className={bubbleClass(m.role)}>
+              <div className="chat-bubble-role">{roleLabel(m.role)}</div>
               <div className="chat-bubble-body">{m.content}</div>
             </div>
           ))

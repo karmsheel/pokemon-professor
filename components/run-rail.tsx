@@ -105,8 +105,15 @@ export function RunRail({
       if (!runId) throw new Error("no active run");
       const prompt = mission.trim();
       if (!prompt) throw new Error("mission prompt required");
-      await window.studio.addMission(runId, prompt);
-      setStatus(`Mission added: ${prompt}`);
+      // store.addMission pauses any previously active mission automatically
+      const created = (await window.studio.addMission(runId, prompt)) as {
+        id?: string;
+        status?: string;
+      };
+      setStatus(
+        `Mission active: ${prompt}${created?.id ? ` (${created.id.slice(0, 8)}…)` : ""}`
+      );
+      setMission("");
     });
 
   const save = () =>
