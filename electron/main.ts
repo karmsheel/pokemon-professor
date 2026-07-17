@@ -6,7 +6,7 @@ import { MockBackend } from "./emulator/mock-backend";
 import type { EmulatorBackend } from "./emulator/backend";
 import { RunStore } from "./runs/store";
 import { appLayout } from "./paths";
-import type { ControlMode } from "./control-api/types";
+import type { Button, ControlMode } from "./control-api/types";
 
 let mainWindow: BrowserWindow | null = null;
 let controlUrl = "";
@@ -87,6 +87,11 @@ async function bootstrap() {
     await backend.loadState(name, layout.saves(currentRunId));
     store.appendEvent(currentRunId, { type: "loadstate", detail: { name } });
     return { name };
+  });
+  ipcMain.handle("studio:driveInput", async (_e, buttons: Button[]) => {
+    if (mode.get() !== "drive") throw new Error("not in drive mode");
+    await backend.press(buttons);
+    return { ok: true };
   });
 
   mainWindow = new BrowserWindow({

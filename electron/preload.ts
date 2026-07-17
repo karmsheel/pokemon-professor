@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld("studio", {
   save: (name: string) => ipcRenderer.invoke("studio:save", name),
   load: (name: string) => ipcRenderer.invoke("studio:load", name),
   pickRom: () => ipcRenderer.invoke("studio:pickRom") as Promise<string | null>,
+  driveInput: (buttons: string[]) =>
+    ipcRenderer.invoke("studio:driveInput", buttons) as Promise<{ ok: true }>,
 });

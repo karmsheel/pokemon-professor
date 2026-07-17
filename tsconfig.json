@@ -7,8 +7,41 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "preserve",
-    "paths": { "@/*": ["./*"] },
-    "types": ["node"]
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["electron/**/*", "app/**/*", "components/**/*", "lib/**/*", "tests/**/*"]
+  "include": [
+    "app/**/*",
+    "components/**/*",
+    "electron/**/*",
+    "lib/**/*",
+    "next.config.ts",
+    "tests/**/*",
+    "types/**/*",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

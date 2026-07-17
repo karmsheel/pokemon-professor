@@ -19,11 +19,21 @@ const VALID_BUTTONS = new Set<Button>([
   "R",
 ]);
 
+function corsHeaders(): Record<string, string> {
+  // Studio UI is served from Next (e.g. :3848) and calls Control API (:7946).
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
+
 function send(res: ServerResponse, status: number, body: unknown) {
   const data = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json",
     "content-length": Buffer.byteLength(data),
+    ...corsHeaders(),
   });
   res.end(data);
 }
@@ -46,6 +56,12 @@ export async function handleRequest(
   const p = url.pathname;
 
   try {
+    if (method === "OPTIONS") {
+      res.writeHead(204, corsHeaders());
+      res.end();
+      return;
+    }
+
     if (method === "GET" && p === "/health") {
       return send(res, 200, {
         ok: true,
