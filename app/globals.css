@@ -204,12 +204,91 @@ label {
 .chat-bar {
   border-top: 1px solid var(--border);
   background: var(--panel);
-  padding: 0.75rem 0.85rem;
+  padding: 0.65rem 0.85rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 38vh;
+  min-height: 0;
+}
+
+.chat-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow: auto;
+  min-height: 0;
+  max-height: 18vh;
+  padding-right: 0.25rem;
+}
+
+.chat-bubble {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  background: var(--panel-2);
+  max-width: 92%;
+}
+
+.chat-bubble-user {
+  align-self: flex-end;
+  background: #1c2a48;
+  border-color: #2f4a7a;
+}
+
+.chat-bubble-assistant {
+  align-self: flex-start;
+}
+
+.chat-bubble-role {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.chat-bubble-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.chat-compose {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
 }
 
 .chat-bar textarea {
-  min-height: 72px;
+  min-height: 56px;
+  max-height: 120px;
   resize: vertical;
+}
+
+.chat-error {
+  margin: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .field {
