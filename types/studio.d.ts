@@ -5,6 +5,20 @@ declare global {
     studio?: {
       getControlUrl: () => Promise<string>;
       getPaths: () => Promise<unknown>;
+      getEmulatorInfo: () => Promise<{
+        choice: "mock" | "mgba";
+        backendKind: "mock" | "mgba";
+        mgbaPresent: boolean;
+        mgbaPath: string | null;
+        scriptPath: string | null;
+        env: string | null;
+      }>;
+      ensureMgba: () => Promise<{
+        ok: true;
+        downloaded: boolean;
+        path: string;
+        backendKind: "mock" | "mgba";
+      }>;
       createRun: (romPath: string) => Promise<{ id: string }>;
       listRuns: () => Promise<unknown[]>;
       addMission: (runId: string, prompt: string) => Promise<unknown>;

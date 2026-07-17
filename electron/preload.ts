@@ -3,6 +3,22 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("studio", {
   getControlUrl: () => ipcRenderer.invoke("studio:getControlUrl") as Promise<string>,
   getPaths: () => ipcRenderer.invoke("studio:getPaths"),
+  getEmulatorInfo: () =>
+    ipcRenderer.invoke("studio:getEmulatorInfo") as Promise<{
+      choice: "mock" | "mgba";
+      backendKind: "mock" | "mgba";
+      mgbaPresent: boolean;
+      mgbaPath: string | null;
+      scriptPath: string | null;
+      env: string | null;
+    }>,
+  ensureMgba: () =>
+    ipcRenderer.invoke("studio:ensureMgba") as Promise<{
+      ok: true;
+      downloaded: boolean;
+      path: string;
+      backendKind: "mock" | "mgba";
+    }>,
   createRun: (romPath: string) =>
     ipcRenderer.invoke("studio:createRun", romPath),
   listRuns: () => ipcRenderer.invoke("studio:listRuns"),

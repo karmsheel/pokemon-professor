@@ -9,6 +9,15 @@ type RunRailProps = {
   disabled?: boolean;
 };
 
+type EmuInfo = {
+  choice: "mock" | "mgba";
+  backendKind: "mock" | "mgba";
+  mgbaPresent: boolean;
+  mgbaPath: string | null;
+  scriptPath: string | null;
+  env: string | null;
+};
+
 export function RunRail({
   runId,
   romPath,
@@ -22,9 +31,21 @@ export function RunRail({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hasStudio, setHasStudio] = useState(false);
+  const [emuInfo, setEmuInfo] = useState<EmuInfo | null>(null);
+
+  const refreshEmuInfo = async () => {
+    if (!window.studio?.getEmulatorInfo) return;
+    try {
+      const info = await window.studio.getEmulatorInfo();
+      setEmuInfo(info);
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     setHasStudio(Boolean(window.studio));
+    void refreshEmuInfo();
   }, []);
 
   const withBusy = async (fn: () => Promise<void>) => {
@@ -49,14 +70,33 @@ export function RunRail({
       }
     });
 
+  const downloadMgba = () =>
+    withBusy(async () => {
+      if (!window.studio?.ensureMgba) throw new Error("ensureMgba unavailable");
+      setStatus("Downloading mGBA (checksum-verified)…");
+      const result = await window.studio.ensureMgba();
+      await refreshEmuInfo();
+      setStatus(
+        result.downloaded
+          ? `mGBA installed → ${result.path}`
+          : `mGBA already present → ${result.path}`
+      );
+    });
+
   const startRun = () =>
     withBusy(async () => {
       if (!window.studio) throw new Error("window.studio unavailable");
       const path = pickedRom ?? "C:\\mock\\firered.gba";
+      if (emuInfo?.backendKind === "mgba" || emuInfo?.choice === "mgba") {
+        setStatus(
+          "Starting mGBA… After the window opens, load the bridge script: Tools → Scripting → Load script (see path below). Waiting up to 60s for TCP :7947."
+        );
+      }
       const run = await window.studio.createRun(path);
       onRunStarted(run, path);
       setPickedRom(path);
-      setStatus(`Run ${run.id} started`);
+      setStatus(`Run ${run.id} started (${emuInfo?.backendKind ?? "emulator"})`);
+      await refreshEmuInfo();
     });
 
   const startMission = () =>
@@ -89,6 +129,35 @@ export function RunRail({
     <section className="panel">
       <h2>Run rail</h2>
       <div className="stack">
+        <div className="status-pill">
+          <span className="dot" />
+          emulator: {emuInfo?.backendKind ?? "…"}
+          {emuInfo?.env ? ` (PP_EMULATOR=${emuInfo.env})` : ""}
+        </div>
+
+        <div className="row">
+          <button
+            type="button"
+            disabled={disabled || busy || !hasStudio}
+            onClick={() => void downloadMgba()}
+          >
+            {emuInfo?.mgbaPresent ? "mGBA ready" : "Download mGBA"}
+          </button>
+        </div>
+        {emuInfo?.mgbaPresent ? (
+          <p className="muted path-text">{emuInfo.mgbaPath}</p>
+        ) : (
+          <p className="muted">
+            First-run: download official mGBA 0.10.5 into app data (never ships ROMs).
+            Requires 7-Zip on PATH or in Program Files.
+          </p>
+        )}
+        {emuInfo?.scriptPath ? (
+          <p className="muted path-text" title={emuInfo.scriptPath}>
+            Bridge script: {emuInfo.scriptPath}
+          </p>
+        ) : null}
+
         <div className="row">
           <button type="button" disabled={disabled || busy || !hasStudio} onClick={() => void pickRom()}>
             Pick ROM
