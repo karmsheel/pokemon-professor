@@ -21,3 +21,9 @@ export async function fetchHealth(controlUrl: string) {
     run_id?: string | null;
   }>;
 }
+
+export async function fetchSaves(controlUrl: string) {
+  const res = await fetch(`${controlUrl}/saves`);
+  if (!res.ok) throw new Error(`saves ${res.status}`);
+  return res.json() as Promise<{ saves: string[] }>;
+}

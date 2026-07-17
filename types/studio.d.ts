@@ -20,7 +20,21 @@ declare global {
         backendKind: "mock" | "mgba";
       }>;
       createRun: (romPath: string) => Promise<{ id: string }>;
-      listRuns: () => Promise<unknown[]>;
+      listRuns: () => Promise<
+        Array<{
+          id: string;
+          rom_path: string;
+          created_at: string;
+          status: string;
+          savestates: string[];
+        }>
+      >;
+      /** Resume an existing run: start backend with rom_path, load last savestate if any. */
+      resumeRun: (runId: string) => Promise<{
+        id: string;
+        rom_path: string;
+        loadedSavestate: string | null;
+      }>;
       addMission: (runId: string, prompt: string) => Promise<unknown>;
       setMode: (mode: "agent" | "nudge" | "drive") => Promise<string>;
       save: (name: string) => Promise<unknown>;

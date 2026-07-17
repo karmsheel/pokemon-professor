@@ -10,6 +10,7 @@ type OverrideControlsProps = {
   disabled?: boolean;
 };
 
+/** Drive keymap: Arrow keys, Z/X, Enter, Shift → GBA buttons. */
 const KEY_MAP: Record<string, string> = {
   ArrowUp: "UP",
   ArrowDown: "DOWN",
@@ -33,6 +34,14 @@ function modeLabel(mode: ControlMode): string {
   if (mode === "agent") return "agent";
   if (mode === "nudge") return "nudge — tools frozen";
   return "drive — human control";
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  return false;
 }
 
 export function OverrideControls({
@@ -64,16 +73,35 @@ export function OverrideControls({
     [onModeChange]
   );
 
+  // Drive keys + Escape → agent. Chat focus is ignored for game keys: we
+  // always consume mapped keys while in drive so the chat bar cannot steal them.
   useEffect(() => {
     if (mode !== "drive") return;
 
     const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void setMode("agent");
+        return;
+      }
+
+      // Normalize ShiftLeft/ShiftRight → SELECT (ev.key is "Shift")
       const button = KEY_MAP[ev.key];
       if (!button) return;
-      // Avoid scrolling / default browser behavior for arrows.
-      if (ev.key.startsWith("Arrow") || ev.key === " ") {
-        ev.preventDefault();
+
+      // Ignore chat/form focus: drive owns these keys while mode is drive.
+      // preventDefault + stopPropagation so Enter/arrows never hit chat.
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.repeat) return;
+
+      // Soft-refocus live view if user clicked into chat (ignore chat focus).
+      if (isEditableTarget(ev.target)) {
+        const live = document.querySelector<HTMLElement>('[data-testid="live-view"]');
+        live?.focus({ preventScroll: true });
       }
+
       if (!window.studio?.driveInput) {
         setError("driveInput IPC missing");
         return;
@@ -89,9 +117,9 @@ export function OverrideControls({
         });
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [mode, setMode]);
 
   return (
     <section className="panel">
@@ -132,16 +160,17 @@ export function OverrideControls({
             type="button"
             className={mode === "agent" ? "active primary" : "primary"}
             disabled={disabled || busy}
+            data-testid="return-to-agent"
             onClick={() => void setMode("agent")}
           >
-            Resume Agent
+            {mode === "drive" ? "Return to Agent" : "Resume Agent"}
           </button>
         </div>
 
         {mode === "drive" ? (
           <p className="muted">
-            Keys: arrows move · Z = A · X = B · Enter = START · Shift = SELECT.
-            Input uses IPC <code>driveInput</code> (not POST /input).
+            Live view focused. Keys: arrows · Z=A · X=B · Enter=START · Shift=SELECT.
+            Escape or Return to Agent → agent. Chat focus is ignored for game keys.
           </p>
         ) : mode === "nudge" ? (
           <p className="muted">

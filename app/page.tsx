@@ -82,6 +82,7 @@ export default function StudioPage() {
         <RunRail
           runId={runId}
           romPath={romPath}
+          controlUrl={controlUrl}
           onRunStarted={(run, path) => {
             setRunId(run.id);
             setRomPath(path);
@@ -92,7 +93,7 @@ export default function StudioPage() {
             <span className="dot" />
             {healthNote}
           </div>
-          <LiveView controlUrl={controlUrl} />
+          <LiveView controlUrl={controlUrl} mode={mode} />
         </div>
         <OverrideControls mode={mode} onModeChange={setMode} />
       </div>

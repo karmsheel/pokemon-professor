@@ -21,7 +21,22 @@ contextBridge.exposeInMainWorld("studio", {
     }>,
   createRun: (romPath: string) =>
     ipcRenderer.invoke("studio:createRun", romPath),
-  listRuns: () => ipcRenderer.invoke("studio:listRuns"),
+  listRuns: () =>
+    ipcRenderer.invoke("studio:listRuns") as Promise<
+      Array<{
+        id: string;
+        rom_path: string;
+        created_at: string;
+        status: string;
+        savestates: string[];
+      }>
+    >,
+  resumeRun: (runId: string) =>
+    ipcRenderer.invoke("studio:resumeRun", runId) as Promise<{
+      id: string;
+      rom_path: string;
+      loadedSavestate: string | null;
+    }>,
   addMission: (runId: string, prompt: string) =>
     ipcRenderer.invoke("studio:addMission", runId, prompt),
   setMode: (mode: "agent" | "nudge" | "drive") =>

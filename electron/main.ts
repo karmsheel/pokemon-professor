@@ -146,7 +146,8 @@ async function bootstrap() {
     });
     return r.canceled ? null : r.filePaths[0] ?? null;
   });
-  ipcMain.handle("studio:createRun", async (_e, romPath: string) => {
+
+  async function ensureBackendReadyForRom() {
     if (emulatorChoice === "mgba" || backend.kind === "mgba") {
       try {
         ensureMgbaBinary(app.getPath("userData"));
@@ -174,6 +175,10 @@ async function bootstrap() {
         );
       }
     }
+  }
+
+  ipcMain.handle("studio:createRun", async (_e, romPath: string) => {
+    await ensureBackendReadyForRom();
 
     const run = store.create({ rom_path: romPath });
     currentRunId = run.id;
@@ -184,6 +189,49 @@ async function bootstrap() {
       detail: { emulator: backend.kind },
     });
     return run;
+  });
+
+  /**
+   * Resume Run: select existing run → start backend with rom_path →
+   * load last savestate name if present.
+   */
+  ipcMain.handle("studio:resumeRun", async (_e, runId: string) => {
+    const run = store.get(runId);
+    if (!run) throw new Error("run not found");
+    if (!run.rom_path) throw new Error("run has no rom_path");
+
+    await ensureBackendReadyForRom();
+
+    currentRunId = run.id;
+    await backend.stop().catch(() => undefined);
+    await backend.start(run.rom_path);
+
+    const lastSavestate =
+      run.savestates.length > 0
+        ? run.savestates[run.savestates.length - 1]
+        : null;
+
+    if (lastSavestate) {
+      await backend.loadState(lastSavestate, layout.saves(run.id));
+      store.appendEvent(run.id, {
+        type: "loadstate",
+        detail: { name: lastSavestate, reason: "resume" },
+      });
+    }
+
+    store.appendEvent(run.id, {
+      type: "run_resumed",
+      detail: {
+        emulator: backend.kind,
+        savestate: lastSavestate,
+      },
+    });
+
+    return {
+      id: run.id,
+      rom_path: run.rom_path,
+      loadedSavestate: lastSavestate,
+    };
   });
   ipcMain.handle(
     "studio:addMission",
