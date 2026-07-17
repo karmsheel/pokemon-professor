@@ -16,6 +16,23 @@ export type Button =
   | "L"
   | "R";
 
+/** Allowlist shared by Control API POST /input and studio:driveInput. */
+export const VALID_BUTTONS = new Set<Button>([
+  "A",
+  "B",
+  "START",
+  "SELECT",
+  "UP",
+  "DOWN",
+  "LEFT",
+  "RIGHT",
+  "L",
+  "R",
+]);
+
+/** Savestate / load names: word chars, dots, hyphens only (no path separators). */
+export const SAVE_NAME_RE = /^[\w.-]+$/;
+
 export interface FireRedState {
   map_id?: number;
   map_name?: string;

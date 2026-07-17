@@ -7,6 +7,8 @@
 local BRIDGE_HOST = "127.0.0.1"
 local BRIDGE_PORT = 7947
 local HOLD_FRAMES = 12
+-- Gap between sequential presses so ["UP","UP","A"] is three holds, not one chord
+local GAP_FRAMES = 2
 
 -- Isolate API lookups so version drift fails with clear errors.
 local API = {}
@@ -253,19 +255,40 @@ local function base64_encode(data)
   return table.concat(out)
 end
 
--- ---------- key hold queue ----------
+-- ---------- key hold queue (sequential presses, not simultaneous chords) ----------
 
 local keyEventQueue = {}
 
-local function enqueue_buttons(mask, duration)
+local function next_queue_start_frame()
   local core = API.core()
   local startFrame = core:currentFrame()
-  table.insert(keyEventQueue, {
-    keyMask = mask,
-    startFrame = startFrame,
-    endFrame = startFrame + (duration or HOLD_FRAMES),
-    pressed = false,
-  })
+  if #keyEventQueue > 0 then
+    local lastEnd = keyEventQueue[#keyEventQueue].endFrame
+    if lastEnd + GAP_FRAMES > startFrame then
+      startFrame = lastEnd + GAP_FRAMES
+    end
+  end
+  return startFrame
+end
+
+--- Enqueue each button as its own hold with a short gap between them.
+--- ["UP","UP","A"] becomes three sequential holds, not one OR-chord.
+local function enqueue_button_sequence(buttons)
+  local cursor = next_queue_start_frame()
+  local executed = {}
+  for _, name in ipairs(buttons or {}) do
+    local idx = API.keyIndex(name)
+    local mask = 1 << idx
+    executed[#executed + 1] = string.upper(tostring(name))
+    table.insert(keyEventQueue, {
+      keyMask = mask,
+      startFrame = cursor,
+      endFrame = cursor + HOLD_FRAMES,
+      pressed = false,
+    })
+    cursor = cursor + HOLD_FRAMES + GAP_FRAMES
+  end
+  return executed
 end
 
 local function update_keys()
@@ -277,7 +300,9 @@ local function update_keys()
       emu:addKeys(ev.keyMask)
       ev.pressed = true
     elseif frame > ev.endFrame then
-      emu:clearKeys(ev.keyMask)
+      if ev.pressed then
+        emu:clearKeys(ev.keyMask)
+      end
       table.insert(indexesToRemove, index)
     end
   end
@@ -288,17 +313,6 @@ end
 
 if callbacks and callbacks.add then
   callbacks:add("frame", update_keys)
-end
-
-local function buttons_to_mask(buttons)
-  local mask = 0
-  local executed = {}
-  for _, name in ipairs(buttons or {}) do
-    local idx = API.keyIndex(name)
-    mask = mask | (1 << idx)
-    executed[#executed + 1] = string.upper(tostring(name))
-  end
-  return mask, executed
 end
 
 local function frame_temp_path()
@@ -343,11 +357,16 @@ local function handle_input(msg)
   if type(buttons) ~= "table" then
     return { ok = false, error = "buttons must be an array" }
   end
-  local mask, executed = buttons_to_mask(buttons)
-  if #executed == 0 then
+  if #buttons == 0 then
     return { ok = false, error = "no buttons provided" }
   end
-  enqueue_buttons(mask, HOLD_FRAMES)
+  local hok, executed = pcall(enqueue_button_sequence, buttons)
+  if not hok then
+    return { ok = false, error = tostring(executed) }
+  end
+  if not executed or #executed == 0 then
+    return { ok = false, error = "no buttons provided" }
+  end
   return { ok = true, executed = executed }
 end
 

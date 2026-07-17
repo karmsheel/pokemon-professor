@@ -2,22 +2,11 @@ import type { IncomingMessage, ServerResponse } from "http";
 import type { ControlContext } from "./context";
 import {
   API_VERSION,
+  SAVE_NAME_RE,
+  VALID_BUTTONS,
   type Button,
   type ControlMode,
 } from "./types";
-
-const VALID_BUTTONS = new Set<Button>([
-  "A",
-  "B",
-  "START",
-  "SELECT",
-  "UP",
-  "DOWN",
-  "LEFT",
-  "RIGHT",
-  "L",
-  "R",
-]);
 
 function corsHeaders(): Record<string, string> {
   // Studio UI is served from Next (e.g. :3848) and calls Control API (:7946).
@@ -144,7 +133,7 @@ export async function handleRequest(
 
     if (method === "POST" && p === "/save") {
       const body = (await readJson(req)) as { name?: string };
-      if (!body.name || !/^[\w.-]+$/.test(body.name)) {
+      if (!body.name || !SAVE_NAME_RE.test(body.name)) {
         return send(res, 400, { ok: false, error: "invalid name" });
       }
       const file = await ctx.backend.saveState(body.name, ctx.getSaveDir());
@@ -153,8 +142,8 @@ export async function handleRequest(
 
     if (method === "POST" && p === "/load") {
       const body = (await readJson(req)) as { name?: string };
-      if (!body.name) {
-        return send(res, 400, { ok: false, error: "name required" });
+      if (!body.name || !SAVE_NAME_RE.test(body.name)) {
+        return send(res, 400, { ok: false, error: "invalid name" });
       }
       await ctx.backend.loadState(body.name, ctx.getSaveDir());
       return send(res, 200, { ok: true, name: body.name });

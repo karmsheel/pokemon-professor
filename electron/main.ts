@@ -15,7 +15,11 @@ import { resolveBridgeScript } from "./emulator/mgba-supervisor";
 import type { EmulatorBackend } from "./emulator/backend";
 import { RunStore } from "./runs/store";
 import { appLayout } from "./paths";
-import type { Button, ControlMode } from "./control-api/types";
+import {
+  VALID_BUTTONS,
+  type Button,
+  type ControlMode,
+} from "./control-api/types";
 
 let mainWindow: BrowserWindow | null = null;
 let controlUrl = "";
@@ -251,11 +255,16 @@ async function bootstrap() {
     const prev = mode.get();
     mode.set(next);
     if (currentRunId && prev !== next) {
-      // Nudge/Resume coach loop events (Task 10)
+      // Nudge/Drive/Resume coach loop events (Task 10 + I3)
       if (next === "nudge") {
         store.appendEvent(currentRunId, { type: "override_nudge_start" });
       } else if (next === "agent") {
-        store.appendEvent(currentRunId, { type: "override_nudge_end" });
+        // End the mode we are leaving — never log nudge_end after drive
+        if (prev === "drive") {
+          store.appendEvent(currentRunId, { type: "override_drive_end" });
+        } else if (prev === "nudge") {
+          store.appendEvent(currentRunId, { type: "override_nudge_end" });
+        }
       } else if (next === "drive") {
         store.appendEvent(currentRunId, { type: "mode_drive" });
       }
@@ -277,6 +286,17 @@ async function bootstrap() {
   });
   ipcMain.handle("studio:driveInput", async (_e, buttons: Button[]) => {
     if (mode.get() !== "drive") throw new Error("not in drive mode");
+    if (!Array.isArray(buttons) || buttons.length === 0) {
+      throw new Error("buttons required");
+    }
+    if (buttons.length > 5) {
+      throw new Error("max 5 buttons per request");
+    }
+    for (const b of buttons) {
+      if (!VALID_BUTTONS.has(b)) {
+        throw new Error(`invalid button: ${b}`);
+      }
+    }
     await backend.press(buttons);
     return { ok: true };
   });

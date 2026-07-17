@@ -96,6 +96,38 @@ describe("Control API", () => {
     });
   });
 
+  it("POST /input returns 409 in drive mode", async () => {
+    await json(`${base}/mode`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "drive" }),
+    });
+    const { status, body } = await json(`${base}/input`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ buttons: ["A"] }),
+    });
+    expect(status).toBe(409);
+    expect(body.ok).toBe(false);
+    expect(body.mode).toBe("drive");
+    // restore
+    await json(`${base}/mode`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "agent" }),
+    });
+  });
+
+  it("POST /load rejects invalid names", async () => {
+    const { status, body } = await json(`${base}/load`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "../escape" }),
+    });
+    expect(status).toBe(400);
+    expect(body.ok).toBe(false);
+  });
+
   it("rejects more than 5 buttons", async () => {
     const { status, body } = await json(`${base}/input`, {
       method: "POST",

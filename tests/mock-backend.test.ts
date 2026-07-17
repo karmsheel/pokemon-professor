@@ -39,10 +39,15 @@ describe("MockBackend", () => {
   it("save and load state round-trip", async () => {
     await backend.start("x.gba");
     await backend.press(["UP"]);
+    const before = await backend.getFramePng();
     const savePath = await backend.saveState("before_brock", tmp);
     expect(fs.existsSync(savePath)).toBe(true);
     await backend.press(["DOWN", "DOWN"]);
+    const mid = await backend.getFramePng();
+    expect(mid.frame_id).toBeGreaterThan(before.frame_id);
     await backend.loadState("before_brock", tmp);
+    const after = await backend.getFramePng();
+    expect(after.frame_id).toBe(before.frame_id);
     const saves = await backend.listSaves(tmp);
     expect(saves).toContain("before_brock");
   });

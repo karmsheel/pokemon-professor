@@ -21,6 +21,7 @@ Do **not** use the separate `pokemon-player` / `pokemon-agent` stack when the st
 - **Read the current mission from user/studio chat.** Follow that objective. Do not invent a different story goal.
 - **Max 5 buttons per `POST /input`.** Prefer 2–4 movement steps, then re-observe.
 - **On HTTP 409 for input:** mode is `nudge` or `drive` (or ROM not loaded). Tell the user agent tools are frozen / human is in control, and **wait** until mode is `agent` again. Do not spam `/input`.
+- **Never `POST /mode`.** Mode changes (`agent` / `nudge` / `drive`) are owned by the Professor UI only. You may `GET /mode` or `GET /health` to observe mode.
 
 ## Preconditions
 
@@ -42,7 +43,7 @@ Expect JSON including `ok: true`, `api_version: "0.1.0"`, `rom_loaded: true`, an
 | GET | `/state` | Partial `FireRedState` or `{ "state": null }` (alpha stub) |
 | GET | `/frame` | PNG screenshot as base64 (`mime`, `data`, `width`, `height`, `frame_id`) |
 | POST | `/input` | `{ "buttons": ["A","RIGHT",...] }` — max 5; agent mode only |
-| GET/POST | `/mode` | Read or set `agent` \| `nudge` \| `drive` (human/studio usually owns mode) |
+| GET | `/mode` | Read `agent` \| `nudge` \| `drive` (observe only — never POST /mode) |
 | POST | `/save` | `{ "name": "descriptive_name" }` |
 | POST | `/load` | `{ "name": "descriptive_name" }` |
 | GET | `/saves` | List savestate names |
@@ -181,6 +182,7 @@ curl -s -X POST http://127.0.0.1:7946/input \
 
 - NEVER download ROMs or invent paths
 - NEVER send more than 5 buttons in one `/input`
+- NEVER `POST /mode` — Professor UI only
 - NEVER keep posting `/input` on 409 — wait for agent mode
 - ALWAYS re-observe with `/frame` after short move sequences
 - ALWAYS sidestep after leaving buildings

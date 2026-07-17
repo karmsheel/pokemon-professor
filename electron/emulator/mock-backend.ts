@@ -2,6 +2,19 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Button, EmulatorBackend, FireRedState } from "../control-api/types";
 
+/** Resolve save path and reject anything that escapes the save directory. */
+function resolveSaveFile(dir: string, name: string, ext: string): string {
+  const resolvedDir = path.resolve(dir);
+  const file = path.resolve(resolvedDir, `${name}${ext}`);
+  const prefix = resolvedDir.endsWith(path.sep)
+    ? resolvedDir
+    : resolvedDir + path.sep;
+  if (file !== resolvedDir && !file.startsWith(prefix)) {
+    throw new Error("invalid save path");
+  }
+  return file;
+}
+
 /** Minimal valid 240x160 solid-color PNG (precomputed). */
 function solidPng(): Buffer {
   // 1x1 PNG is fine for tests if we report width/height as 240x160 metadata,
@@ -55,7 +68,7 @@ export class MockBackend implements EmulatorBackend {
 
   async saveState(name: string, dir: string): Promise<string> {
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${name}.mockstate`);
+    const file = resolveSaveFile(dir, name, ".mockstate");
     fs.writeFileSync(
       file,
       JSON.stringify({ frameId: this.frameId, pressCount: this.pressCount }),
@@ -65,7 +78,7 @@ export class MockBackend implements EmulatorBackend {
   }
 
   async loadState(name: string, dir: string): Promise<void> {
-    const file = path.join(dir, `${name}.mockstate`);
+    const file = resolveSaveFile(dir, name, ".mockstate");
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
       frameId: number;
       pressCount: number;

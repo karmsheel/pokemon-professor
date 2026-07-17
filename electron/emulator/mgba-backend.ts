@@ -9,6 +9,19 @@ import {
   type MgbaProcess,
 } from "./mgba-supervisor";
 
+/** Resolve save path and reject anything that escapes the save directory. */
+function resolveSaveFile(dir: string, name: string, ext: string): string {
+  const resolvedDir = path.resolve(dir);
+  const file = path.resolve(resolvedDir, `${name}${ext}`);
+  const prefix = resolvedDir.endsWith(path.sep)
+    ? resolvedDir
+    : resolvedDir + path.sep;
+  if (file !== resolvedDir && !file.startsWith(prefix)) {
+    throw new Error("invalid save path");
+  }
+  return file;
+}
+
 const REQUEST_TIMEOUT_MS = 5000;
 const BRIDGE_WAIT_MS = 60_000;
 const BRIDGE_POLL_MS = 500;
@@ -141,7 +154,7 @@ export class MgbaBackend implements EmulatorBackend {
   async saveState(name: string, dir: string): Promise<string> {
     this.assertLoaded();
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${name}.ss0`);
+    const file = resolveSaveFile(dir, name, ".ss0");
     const res = await this.request({ cmd: "save", path: file });
     if (!res.ok) {
       throw new Error((res as BridgeErr).error || "save failed");
@@ -151,7 +164,7 @@ export class MgbaBackend implements EmulatorBackend {
 
   async loadState(name: string, dir: string): Promise<void> {
     this.assertLoaded();
-    const file = path.join(dir, `${name}.ss0`);
+    const file = resolveSaveFile(dir, name, ".ss0");
     if (!fs.existsSync(file)) {
       throw new Error(`savestate not found: ${file}`);
     }
