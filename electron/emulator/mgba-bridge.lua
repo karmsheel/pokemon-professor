@@ -505,13 +505,12 @@ local function begin_server()
     return
   end
   local err
+  -- Bind localhost only; never fall back to all interfaces
   server, err = socket.bind(BRIDGE_HOST, BRIDGE_PORT)
   if not server then
-    -- Fall back to all interfaces if host-specific bind fails
-    server, err = socket.bind(nil, BRIDGE_PORT)
-  end
-  if not server then
-    log_error("bind failed on port " .. BRIDGE_PORT .. ": " .. tostring(err))
+    log_error(
+      "bind failed on " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. ": " .. tostring(err)
+    )
     return
   end
   local ok

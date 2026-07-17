@@ -67,7 +67,8 @@ export async function spawnMgba(opts: SpawnMgbaOpts): Promise<MgbaProcess> {
   const child = spawn(exePath, args, {
     detached: false,
     windowsHide: opts.windowsHide ?? false,
-    stdio: ["ignore", "pipe", "pipe"],
+    // stdout ignored so the pipe buffer cannot fill and hang mGBA
+    stdio: ["ignore", "ignore", "pipe"],
     env: {
       ...process.env,
       PP_MGBA_BRIDGE_PORT: String(bridgePort),

@@ -98,12 +98,15 @@ export class MgbaBackend implements EmulatorBackend {
     frame_id: number;
   }> {
     this.assertLoaded();
-    const res = (await this.request({ cmd: "frame" })) as BridgeOk & {
+    const res = (await this.request({ cmd: "frame" })) as (BridgeOk | BridgeErr) & {
       width?: number;
       height?: number;
       png_base64?: string;
       path?: string;
     };
+    if (!res.ok) {
+      throw new Error((res as BridgeErr).error || "frame failed");
+    }
     let data: Buffer | null = null;
     if (typeof res.png_base64 === "string" && res.png_base64.length > 0) {
       data = Buffer.from(res.png_base64, "base64");
