@@ -26,6 +26,8 @@ type HermesHealth = {
 
 type ChatBarProps = {
   mode?: ControlMode;
+  /** sidebar = right column (tall); bar = legacy bottom strip */
+  variant?: "sidebar" | "bar";
 };
 
 function newId(): string {
@@ -46,7 +48,7 @@ function modeBadgeClass(mode: ControlMode): string {
   return "status-pill warn";
 }
 
-export function ChatBar({ mode = "agent" }: ChatBarProps) {
+export function ChatBar({ mode = "agent", variant = "sidebar" }: ChatBarProps) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -227,16 +229,20 @@ export function ChatBar({ mode = "agent" }: ChatBarProps) {
     return "Hermes";
   };
 
+  const shellClass =
+    variant === "sidebar" ? "panel chat-bar chat-bar-sidebar" : "chat-bar chat-bar-strip";
+
   return (
-    <footer className="chat-bar">
+    <section className={shellClass} aria-label="Hermes chat">
       <div className="chat-bar-header">
-        <div className="row" style={{ gap: "0.65rem", flex: "0 0 auto" }}>
+        <h2 className="chat-title">Hermes chat</h2>
+        <div className="chat-bar-badges">
           <span
             className={`status-pill ${connected ? "ok" : ""}`}
             title={statusNote}
           >
             <span className="dot" />
-            {connected ? "Hermes" : "Hermes offline"}
+            {connected ? "online" : "offline"}
           </span>
           <span
             className={modeBadgeClass(mode)}
@@ -244,12 +250,10 @@ export function ChatBar({ mode = "agent" }: ChatBarProps) {
             title="Control mode"
           >
             <span className="dot" />
-            mode: {mode}
-          </span>
-          <span className="muted" style={{ fontSize: "0.75rem" }}>
-            {statusNote}
+            {mode}
           </span>
         </div>
+        <span className="muted chat-status-note">{statusNote}</span>
       </div>
 
       <div className="chat-messages" ref={listRef} aria-live="polite">
@@ -289,7 +293,7 @@ export function ChatBar({ mode = "agent" }: ChatBarProps) {
               ? "Message Hermes… (Enter to send, Shift+Enter for newline)"
               : "Hermes offline — you can still type; send will show unavailable"
           }
-          rows={2}
+          rows={variant === "sidebar" ? 4 : 2}
           disabled={sending}
         />
         <button
@@ -300,6 +304,6 @@ export function ChatBar({ mode = "agent" }: ChatBarProps) {
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
-    </footer>
+    </section>
   );
 }

@@ -37,9 +37,19 @@ export type MgbaBackendOptions = {
   bridgePort?: number;
 };
 
+export type MgbaStartOptions = {
+  /**
+   * When true (default), if a Lua bridge is already listening, attach without
+   * spawning a second mGBA. Use attachOnly to fail instead of spawning.
+   */
+  preferAttach?: boolean;
+  /** Only attach; never spawn. Throws if bridge is down. */
+  attachOnly?: boolean;
+};
+
 /**
  * EmulatorBackend that talks to mGBA via the Lua TCP bridge (port 7947).
- * `start` spawns mGBA (supervisor) then waits for the bridge to accept connections.
+ * `start` prefers attaching to an existing bridge; otherwise spawns mGBA.
  *
  * mGBA 0.10.x requires manually loading mgba-bridge.lua once per session:
  * Tools → Scripting → File → Load script…
@@ -50,6 +60,8 @@ export class MgbaBackend implements EmulatorBackend {
   private loaded = false;
   private frameId = 0;
   private proc: MgbaProcess | null = null;
+  /** True only when we spawned mGBA — do not kill an external process on stop. */
+  private ownsProcess = false;
   private readonly exePath: string;
   private readonly scriptPath: string;
   private readonly bridgePort: number;
@@ -60,8 +72,62 @@ export class MgbaBackend implements EmulatorBackend {
     this.bridgePort = opts.bridgePort ?? DEFAULT_BRIDGE_PORT;
   }
 
-  async start(romPath: string): Promise<void> {
+  /** True if something is answering ping on the bridge port. */
+  async isBridgeUp(timeoutMs = 800): Promise<boolean> {
+    try {
+      const res = await this.request({ cmd: "ping" }, timeoutMs);
+      return res.ok === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Attach to an already-running mGBA + loaded bridge. Does not spawn or kill.
+   */
+  /** Last connect mode from start/attach (for logging / UI). */
+  lastConnectMode: "attach" | "spawn" | null = null;
+
+  async attach(): Promise<void> {
+    const up = await this.isBridgeUp(1500);
+    if (!up) {
+      throw new Error(
+        `No mGBA bridge on 127.0.0.1:${this.bridgePort}. ` +
+          `Load the script in mGBA: Tools → Scripting → File → Load script… → ${this.scriptPath}`
+      );
+    }
+    // Detach from any prior owned process without killing external emulator
+    this.proc = null;
+    this.ownsProcess = false;
+    this.loaded = true;
+    this.frameId = 0;
+    this.lastConnectMode = "attach";
+  }
+
+  async start(romPath: string, opts: MgbaStartOptions = {}): Promise<void> {
+    const preferAttach = opts.preferAttach !== false;
+    const attachOnly = opts.attachOnly === true;
+
+    // Drop previous run state; only kill mGBA if we spawned it
     await this.stop().catch(() => undefined);
+
+    if (preferAttach || attachOnly) {
+      const up = await this.isBridgeUp(800);
+      if (up) {
+        this.ownsProcess = false;
+        this.proc = null;
+        this.loaded = true;
+        this.frameId = 0;
+        this.lastConnectMode = "attach";
+        return;
+      }
+      if (attachOnly) {
+        throw new Error(
+          `No mGBA bridge on 127.0.0.1:${this.bridgePort}. ` +
+            `Start mGBA with your ROM, then: Tools → Scripting → Load script → ${this.scriptPath}`
+        );
+      }
+    }
 
     this.proc = await spawnMgba({
       exePath: this.exePath,
@@ -69,6 +135,7 @@ export class MgbaBackend implements EmulatorBackend {
       scriptPath: this.scriptPath,
       bridgePort: this.bridgePort,
     });
+    this.ownsProcess = true;
 
     try {
       await this.waitForBridge();
@@ -82,14 +149,16 @@ export class MgbaBackend implements EmulatorBackend {
 
     this.loaded = true;
     this.frameId = 0;
+    this.lastConnectMode = "spawn";
   }
 
   async stop(): Promise<void> {
     this.loaded = false;
-    if (this.proc) {
+    if (this.ownsProcess && this.proc) {
       this.proc.stop();
-      this.proc = null;
     }
+    this.proc = null;
+    this.ownsProcess = false;
   }
 
   isRomLoaded(): boolean {
@@ -190,7 +259,7 @@ export class MgbaBackend implements EmulatorBackend {
     const deadline = Date.now() + BRIDGE_WAIT_MS;
     let lastErr = "bridge not ready";
     while (Date.now() < deadline) {
-      if (this.proc?.child.exitCode != null) {
+      if (this.ownsProcess && this.proc?.child.exitCode != null) {
         throw new Error("mGBA process exited before bridge connected");
       }
       try {

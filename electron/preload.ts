@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("studio", {
       mgbaPath: string | null;
       scriptPath: string | null;
       env: string | null;
+      bridgeUp: boolean;
+      bridgePort: number | null;
+      romLoaded: boolean;
     }>,
   ensureMgba: () =>
     ipcRenderer.invoke("studio:ensureMgba") as Promise<{
@@ -20,7 +23,16 @@ contextBridge.exposeInMainWorld("studio", {
       backendKind: "mock" | "mgba";
     }>,
   createRun: (romPath: string) =>
-    ipcRenderer.invoke("studio:createRun", romPath),
+    ipcRenderer.invoke("studio:createRun", romPath) as Promise<{
+      id: string;
+      connect?: "attach" | "spawn" | "mock";
+    }>,
+  attachBridge: (romPath?: string | null) =>
+    ipcRenderer.invoke("studio:attachBridge", romPath) as Promise<{
+      id: string;
+      rom_path: string;
+      connect: "attach";
+    }>,
   listRuns: () =>
     ipcRenderer.invoke("studio:listRuns") as Promise<
       Array<{

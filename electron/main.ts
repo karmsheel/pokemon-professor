@@ -91,7 +91,7 @@ async function bootstrap() {
 
   ipcMain.handle("studio:getControlUrl", () => controlUrl);
   ipcMain.handle("studio:getPaths", () => layout);
-  ipcMain.handle("studio:getEmulatorInfo", () => {
+  ipcMain.handle("studio:getEmulatorInfo", async () => {
     const userData = app.getPath("userData");
     const present = isMgbaPresent(userData);
     const scriptPath =
@@ -104,6 +104,25 @@ async function bootstrap() {
               return null;
             }
           })();
+    let bridgeUp = false;
+    let bridgePort: number | null = null;
+    if (backend instanceof MgbaBackend) {
+      bridgePort = backend.getBridgePort();
+      bridgeUp = await backend.isBridgeUp(600);
+    } else {
+      // Probe default port even on mock so UI can offer attach after user loads script
+      try {
+        const probe = new MgbaBackend({
+          exePath: present ? mgbaExePath(userData) : "mGBA.exe",
+          scriptPath: resolveBridgeScript(),
+        });
+        bridgePort = probe.getBridgePort();
+        bridgeUp = await probe.isBridgeUp(600);
+      } catch {
+        bridgePort = 7947;
+        bridgeUp = false;
+      }
+    }
     return {
       choice: emulatorChoice,
       backendKind: backend.kind,
@@ -111,6 +130,9 @@ async function bootstrap() {
       mgbaPath: present ? mgbaExePath(userData) : null,
       scriptPath,
       env: process.env.PP_EMULATOR || null,
+      bridgeUp,
+      bridgePort,
+      romLoaded: backend.isRomLoaded(),
     };
   });
   ipcMain.handle("studio:ensureMgba", async () => {
@@ -152,48 +174,102 @@ async function bootstrap() {
   });
 
   async function ensureBackendReadyForRom() {
-    if (emulatorChoice === "mgba" || backend.kind === "mgba") {
+    if (emulatorChoice === "mgba" || backend.kind === "mgba" || (process.env.PP_EMULATOR || "").toLowerCase() === "mgba") {
+      const userData = app.getPath("userData");
+      // Prefer mGBA when attaching to a live bridge even if we started on mock
       try {
-        ensureMgbaBinary(app.getPath("userData"));
+        ensureMgbaBinary(userData);
       } catch (err) {
-        if (err instanceof MgbaMissingError) {
-          throw new Error(
-            "mGBA is not installed. Use “Download mGBA” in the Run rail, or set PP_EMULATOR=mock."
-          );
+        // Allow attach without local binary if bridge is already up
+        const probe = new MgbaBackend({
+          exePath: "mGBA.exe",
+          scriptPath: resolveBridgeScript(),
+        });
+        if (!(await probe.isBridgeUp(600))) {
+          if (err instanceof MgbaMissingError) {
+            throw new Error(
+              "mGBA is not installed. Use “Download mGBA” in the Run rail, or set PP_EMULATOR=mock."
+            );
+          }
+          throw err;
         }
-        throw err;
       }
-      // Rebuild backend if exe appeared after construction with missing path
       if (backend.kind !== "mgba") {
-        await backend.stop().catch(() => undefined);
-        setBackend(createBackend("mgba", app.getPath("userData")));
-      } else if (backend instanceof MgbaBackend) {
-        // Refresh exe path in a new instance if needed
-        const exe = mgbaExePath(app.getPath("userData"));
-        await backend.stop().catch(() => undefined);
-        setBackend(
-          new MgbaBackend({
-            exePath: exe,
-            scriptPath: resolveBridgeScript(),
-          })
-        );
+        // Switch mock → mgba without killing external emulator
+        setBackend(createBackend("mgba", userData));
+        emulatorChoice = "mgba";
       }
+      // Do NOT recreate MgbaBackend if already mgba — that would drop attach state
     }
   }
 
-  ipcMain.handle("studio:createRun", async (_e, romPath: string) => {
+  async function startOrAttachBackend(romPath: string): Promise<"attach" | "spawn" | "mock"> {
     await ensureBackendReadyForRom();
-
-    const run = store.create({ rom_path: romPath });
-    currentRunId = run.id;
+    if (backend instanceof MgbaBackend) {
+      // stop() only kills mGBA if we spawned it (ownsProcess)
+      await backend.start(romPath, { preferAttach: true });
+      return backend.lastConnectMode === "spawn" ? "spawn" : "attach";
+    }
     await backend.stop().catch(() => undefined);
     await backend.start(romPath);
+    return "mock";
+  }
+
+  ipcMain.handle("studio:createRun", async (_e, romPath: string) => {
+    const run = store.create({ rom_path: romPath });
+    currentRunId = run.id;
+    const modeStarted = await startOrAttachBackend(romPath);
     store.appendEvent(run.id, {
       type: "run_started",
-      detail: { emulator: backend.kind },
+      detail: { emulator: backend.kind, connect: modeStarted },
     });
-    return run;
+    return { ...run, connect: modeStarted };
   });
+
+  /**
+   * Attach to an already-running mGBA + bridge without spawning.
+   * Creates a run if needed using the given romPath (bookkeeping only).
+   */
+  ipcMain.handle(
+    "studio:attachBridge",
+    async (_e, romPath?: string | null) => {
+      await ensureBackendReadyForRom();
+      if (!(backend instanceof MgbaBackend)) {
+        setBackend(createBackend("mgba", app.getPath("userData")));
+        emulatorChoice = "mgba";
+      }
+      if (!(backend instanceof MgbaBackend)) {
+        throw new Error("mGBA backend unavailable");
+      }
+      await backend.attach();
+      const pathForRun =
+        romPath ||
+        (currentRunId ? store.get(currentRunId)?.rom_path : null) ||
+        "attached-session.gba";
+      if (!currentRunId) {
+        const run = store.create({ rom_path: pathForRun });
+        currentRunId = run.id;
+        store.appendEvent(run.id, {
+          type: "run_started",
+          detail: { emulator: "mgba", connect: "attach" },
+        });
+        return {
+          id: run.id,
+          rom_path: run.rom_path,
+          connect: "attach" as const,
+        };
+      }
+      store.appendEvent(currentRunId, {
+        type: "bridge_attached",
+        detail: { emulator: "mgba" },
+      });
+      return {
+        id: currentRunId,
+        rom_path: pathForRun,
+        connect: "attach" as const,
+      };
+    }
+  );
 
   /**
    * Resume Run: select existing run → start backend with rom_path →
@@ -204,11 +280,8 @@ async function bootstrap() {
     if (!run) throw new Error("run not found");
     if (!run.rom_path) throw new Error("run has no rom_path");
 
-    await ensureBackendReadyForRom();
-
     currentRunId = run.id;
-    await backend.stop().catch(() => undefined);
-    await backend.start(run.rom_path);
+    const modeStarted = await startOrAttachBackend(run.rom_path);
 
     const lastSavestate =
       run.savestates.length > 0
@@ -228,6 +301,7 @@ async function bootstrap() {
       detail: {
         emulator: backend.kind,
         savestate: lastSavestate,
+        connect: modeStarted,
       },
     });
 
@@ -235,6 +309,7 @@ async function bootstrap() {
       id: run.id,
       rom_path: run.rom_path,
       loadedSavestate: lastSavestate,
+      connect: modeStarted,
     };
   });
   ipcMain.handle(
@@ -322,5 +397,6 @@ async function bootstrap() {
 app.whenReady().then(bootstrap);
 
 app.on("before-quit", () => {
+  // stop() only kills mGBA if Studio spawned it (attach leaves external mGBA running)
   void backend?.stop().catch(() => undefined);
 });

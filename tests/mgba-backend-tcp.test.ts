@@ -78,8 +78,17 @@ describe("MgbaBackend TCP protocol", () => {
       bridgePort: port,
     });
 
-    // Bypass spawn: mark loaded and talk to fake bridge directly
-    (backend as unknown as { loaded: boolean }).loaded = true;
+    expect(await backend.isBridgeUp()).toBe(true);
+    await backend.attach();
+    expect(backend.lastConnectMode).toBe("attach");
+    expect(backend.isRomLoaded()).toBe(true);
+
+    // preferAttach start should attach without needing a real exe
+    await backend.stop();
+    await backend.start("C:\\fake\\firered.gba", {
+      preferAttach: true,
+    });
+    expect(backend.lastConnectMode).toBe("attach");
 
     const frame = await backend.getFramePng();
     expect(frame.width).toBe(240);
@@ -95,5 +104,9 @@ describe("MgbaBackend TCP protocol", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-mgba-save-"));
     const file = await backend.saveState("slot1", dir);
     expect(file.endsWith("slot1.ss0")).toBe(true);
+
+    // stop after attach must not throw (no owned process)
+    await backend.stop();
+    expect(backend.isRomLoaded()).toBe(false);
   });
 });

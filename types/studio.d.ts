@@ -12,6 +12,9 @@ declare global {
         mgbaPath: string | null;
         scriptPath: string | null;
         env: string | null;
+        bridgeUp: boolean;
+        bridgePort: number | null;
+        romLoaded: boolean;
       }>;
       ensureMgba: () => Promise<{
         ok: true;
@@ -19,7 +22,16 @@ declare global {
         path: string;
         backendKind: "mock" | "mgba";
       }>;
-      createRun: (romPath: string) => Promise<{ id: string }>;
+      createRun: (romPath: string) => Promise<{
+        id: string;
+        connect?: "attach" | "spawn" | "mock";
+      }>;
+      /** Attach to running mGBA + Lua bridge (no second emulator window). */
+      attachBridge: (romPath?: string | null) => Promise<{
+        id: string;
+        rom_path: string;
+        connect: "attach";
+      }>;
       listRuns: () => Promise<
         Array<{
           id: string;

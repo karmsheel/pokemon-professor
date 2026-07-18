@@ -8,16 +8,16 @@ Alpha is **done** when every row is **Pass** on an engineer machine. Automated c
 
 | # | Check | Pass? | Notes |
 |---|--------|-------|-------|
-| 1 | `npm test` all unit/integration pass | **Pass** | 2026-07-17: `vitest run` — **8 files, 33 tests passed** (~1s) |
-| 2 | App starts on Windows | **Manual** | Engineer: `npm run dev:web` / `npm run dev:electron`; window + Control API |
-| 3 | mGBA download or mock path works | **Manual** | First-run mGBA into user-data **or** mock backend without binary |
-| 4 | Load FireRed (real) or mock ROM path | **Manual** | User legal `.gba` or any path for mock (content ignored) |
-| 5 | Live frames visible | **Manual** | Live view shows frame stream / frame_id updates |
-| 6 | Hermes chat message round-trip | **Manual** | Gateway up; chat bar → proxy → reply (or clear unavailable error) |
-| 7 | Skill or curl `POST /input` moves game | **Manual** | Agent mode; buttons applied on mock or mGBA |
-| 8 | Nudge blocks input (409) | **Manual** | Mode `nudge` → `POST /input` → **409**; Resume → agent again |
-| 9 | Drive human control works | **Manual** | Drive keys move game; Escape / Return to Agent → agent |
-| 10 | Savestate save/load/resume | **Manual** | Save name → load; Resume Run loads last savestate if present |
+| 1 | `npm test` all unit/integration pass | **Pass** | 2026-07-18: `vitest run` — **8 files, 35 tests passed** |
+| 2 | App starts on Windows | **Pass** | Next `:3848` + Electron Control API `:7946` |
+| 3 | mGBA download or mock path works | **Pass** | mGBA 0.10.5 downloaded; mock smoke 15/15; live FireRed bridge smoke 4/4 + attach Control API 13/13 |
+| 4 | Load FireRed (real) or mock ROM path | **Pass** | Real ROM: `.local-roms/PokemonFireRed.gba`; mGBA running `POKEMON FIRE` |
+| 5 | Live frames visible | **Pass** | Real FireRed PNG via bridge (`scripts/last-firered-frame.png`); GUI live view still optional eyeball |
+| 6 | Hermes chat message round-trip | **Pass** | Proxy 200 → `READY` / `PONG` |
+| 7 | Skill or curl `POST /input` moves game | **Pass** | Real FireRed: `POST /input` A + sequential RIGHT/RIGHT/UP; skill installed |
+| 8 | Nudge blocks input (409) | **Pass** | Mock + real attach Control API |
+| 9 | Drive human control works | **Partial** | Mode gate 409 Pass on real attach; **keyboard Drive in Electron UI** still manual eyeball |
+| 10 | Savestate save/load/resume | **Pass** | Real mGBA: save/load `alpha_test.ss0` via bridge |
 
 ## Automated test record
 
@@ -26,10 +26,13 @@ Alpha is **done** when every row is **Pass** on an engineer machine. Automated c
 > vitest run
 
 Test Files  8 passed (8)
-     Tests  33 passed (33)
+     Tests  35 passed (35)
+
+> node scripts/alpha-mock-smoke.cjs
+SUMMARY 15/15 passed
 ```
 
-Covered suites include: mode machine, Control API, mock backend, mGBA download + TCP backend smoke, run store, Hermes proxy, skill protocol (observe → input → nudge 409 → resume).
+See also `docs/superpowers/plans/alpha-test-log.md`.
 
 ## Manual verification hints
 

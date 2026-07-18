@@ -66,6 +66,9 @@ export function LiveView({ controlUrl, mode = "agent" }: LiveViewProps) {
 
   const driveActive = mode === "drive";
 
+  const nativeW = size?.w ?? 240;
+  const nativeH = size?.h ?? 160;
+
   return (
     <section
       ref={panelRef}
@@ -85,27 +88,41 @@ export function LiveView({ controlUrl, mode = "agent" }: LiveViewProps) {
       }}
     >
       <h2>Live view{driveActive ? " · DRIVE" : ""}</h2>
-      {data ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          className="live-frame"
-          alt="Emulator frame"
-          src={`data:image/png;base64,${data}`}
-          width={size?.w ?? 240}
-          height={size?.h ?? 160}
-          draggable={false}
-        />
-      ) : (
-        <div className="live-frame" style={{ display: "grid", placeItems: "center" }}>
-          <span className="muted">
-            {controlUrl ? "Waiting for frame…" : "Start a run to see frames"}
-          </span>
-        </div>
-      )}
+      <div className="live-frame-viewport">
+        {data ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            className="live-frame"
+            alt="Emulator frame — live FireRed / GBA screen"
+            src={`data:image/png;base64,${data}`}
+            /* Native GBA size is only metadata — CSS scales the display */
+            width={nativeW}
+            height={nativeH}
+            draggable={false}
+          />
+        ) : (
+          <div className="live-frame-placeholder">
+            <span className="muted" style={{ textAlign: "center", lineHeight: 1.5 }}>
+              {controlUrl ? (
+                <>
+                  Waiting for frames from Control API…
+                  <br />
+                  <small>
+                    Start Run or Attach bridge (Run rail). If using mGBA, load{" "}
+                    <code>mgba-bridge.lua</code> first.
+                  </small>
+                </>
+              ) : (
+                "Connecting to studio…"
+              )}
+            </span>
+          </div>
+        )}
+      </div>
       <div className="live-meta">
         <span>frame_id: {frameId ?? "—"}</span>
         <span>
-          size: {size ? `${size.w}×${size.h}` : "—"}
+          native: {size ? `${size.w}×${size.h}` : "—"} (scaled to fit)
         </span>
         {driveActive ? (
           <span className="ok-text">

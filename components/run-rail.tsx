@@ -26,6 +26,9 @@ type EmuInfo = {
   mgbaPath: string | null;
   scriptPath: string | null;
   env: string | null;
+  bridgeUp?: boolean;
+  bridgePort?: number | null;
+  romLoaded?: boolean;
 };
 
 function shortId(id: string): string {
@@ -107,6 +110,10 @@ export function RunRail({
     setHasStudio(Boolean(window.studio));
     void refreshEmuInfo();
     void refreshRuns();
+    const t = setInterval(() => {
+      void refreshEmuInfo();
+    }, 3000);
+    return () => clearInterval(t);
   }, [refreshRuns]);
 
   useEffect(() => {
@@ -161,7 +168,9 @@ export function RunRail({
     withBusy(async () => {
       if (!window.studio) throw new Error("window.studio unavailable");
       const path = pickedRom ?? "C:\\mock\\firered.gba";
-      if (emuInfo?.backendKind === "mgba" || emuInfo?.choice === "mgba") {
+      if (emuInfo?.bridgeUp) {
+        setStatus("Bridge online — attaching (no second mGBA)…");
+      } else if (emuInfo?.backendKind === "mgba" || emuInfo?.choice === "mgba") {
         setStatus(
           "Starting mGBA… After the window opens, load the bridge script: Tools → Scripting → Load script (see path below). Waiting up to 60s for TCP :7947."
         );
@@ -169,7 +178,28 @@ export function RunRail({
       const run = await window.studio.createRun(path);
       onRunStarted(run, path);
       setPickedRom(path);
-      setStatus(`Run ${run.id} started (${emuInfo?.backendKind ?? "emulator"})`);
+      const how =
+        run.connect === "attach"
+          ? "attached to running mGBA"
+          : run.connect === "spawn"
+            ? "spawned mGBA"
+            : emuInfo?.backendKind ?? "emulator";
+      setStatus(`Run ${run.id} · ${how} — Live view should show frames`);
+      await refreshEmuInfo();
+      await refreshRuns();
+      await refreshSaves();
+    });
+
+  const attachBridge = () =>
+    withBusy(async () => {
+      if (!window.studio?.attachBridge) throw new Error("attachBridge unavailable");
+      setStatus("Attaching to mGBA bridge on :7947…");
+      const result = await window.studio.attachBridge(pickedRom);
+      onRunStarted({ id: result.id }, result.rom_path);
+      setPickedRom(result.rom_path);
+      setStatus(
+        `Attached to bridge · run ${result.id.slice(0, 8)}… — watch Live view`
+      );
       await refreshEmuInfo();
       await refreshRuns();
       await refreshSaves();
@@ -247,6 +277,12 @@ export function RunRail({
           emulator: {emuInfo?.backendKind ?? "…"}
           {emuInfo?.env ? ` (PP_EMULATOR=${emuInfo.env})` : ""}
         </div>
+        <div className={`status-pill${emuInfo?.bridgeUp ? " ok" : ""}`}>
+          <span className="dot" />
+          bridge :{emuInfo?.bridgePort ?? 7947}:{" "}
+          {emuInfo?.bridgeUp ? "online — Start Run will attach" : "offline"}
+          {emuInfo?.romLoaded ? " · studio linked" : ""}
+        </div>
 
         <div className="row">
           <button
@@ -289,7 +325,21 @@ export function RunRail({
           >
             Start Run
           </button>
+          <button
+            type="button"
+            disabled={disabled || busy || !hasStudio || !emuInfo?.bridgeUp}
+            onClick={() => void attachBridge()}
+            title="Link Studio to mGBA that already has the Lua bridge loaded"
+          >
+            Attach bridge
+          </button>
         </div>
+        <p className="muted">
+          If mGBA is already playing and the bridge script is loaded,{" "}
+          <strong>Start Run</strong> or <strong>Attach bridge</strong> links
+          Studio without opening a second emulator. Then watch the center{" "}
+          <strong>Live view</strong> panel.
+        </p>
 
         <div className="field">
           <label htmlFor="resume-run">Resume Run</label>

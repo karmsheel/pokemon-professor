@@ -79,25 +79,31 @@ export default function StudioPage() {
   return (
     <div className="studio-root">
       <div className="studio-main">
-        <RunRail
-          runId={runId}
-          romPath={romPath}
-          controlUrl={controlUrl}
-          onRunStarted={(run, path) => {
-            setRunId(run.id);
-            setRomPath(path);
-          }}
-        />
-        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, gap: "0.5rem" }}>
-          <div className="status-pill ok" style={{ alignSelf: "flex-start" }}>
-            <span className="dot" />
-            {healthNote}
+        <div className="studio-stage">
+          <div className="studio-center">
+            <div className="status-pill ok" style={{ alignSelf: "flex-start" }}>
+              <span className="dot" />
+              {healthNote}
+            </div>
+            <LiveView controlUrl={controlUrl} mode={mode} />
           </div>
-          <LiveView controlUrl={controlUrl} mode={mode} />
+          <div className="studio-run-rail">
+            <RunRail
+              runId={runId}
+              romPath={romPath}
+              controlUrl={controlUrl}
+              onRunStarted={(run, path) => {
+                setRunId(run.id);
+                setRomPath(path);
+              }}
+            />
+          </div>
         </div>
-        <OverrideControls mode={mode} onModeChange={setMode} />
+        <ChatBar mode={mode} variant="sidebar" />
       </div>
-      <ChatBar mode={mode} />
+      <footer className="studio-footer">
+        <OverrideControls mode={mode} onModeChange={setMode} />
+      </footer>
     </div>
   );
 }
