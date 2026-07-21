@@ -46,8 +46,9 @@ describe("MockBackend", () => {
     const mid = await backend.getFramePng();
     expect(mid.frame_id).toBeGreaterThan(before.frame_id);
     await backend.loadState("before_brock", tmp);
+    // load restores saved frameId; getFramePng increments before returning
     const after = await backend.getFramePng();
-    expect(after.frame_id).toBe(before.frame_id);
+    expect(after.frame_id).toBe(before.frame_id + 1);
     const saves = await backend.listSaves(tmp);
     expect(saves).toContain("before_brock");
   });
