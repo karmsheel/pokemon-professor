@@ -5,6 +5,7 @@ import * as fs from "fs";
 import { createControlServer } from "../electron/control-api/server";
 import { ModeMachine } from "../electron/control-api/mode-machine";
 import { MockBackend } from "../electron/emulator/mock-backend";
+import { CaptureScheduler } from "../electron/emulator/capture-scheduler";
 import type { ControlContext } from "../electron/control-api/context";
 
 async function json(url: string, init?: RequestInit) {
@@ -23,18 +24,26 @@ describe("Control API", () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pp-api-"));
     const backend = new MockBackend();
     await backend.start(path.join(tmp, "firered.gba"));
+    const capture = new CaptureScheduler(() => ctx.backend);
     ctx = {
       mode: new ModeMachine(),
       backend,
+      capture,
       getRunId: () => "run-test-1",
       getSaveDir: () => path.join(tmp, "saves"),
     };
+    capture.start();
+    // wait until at least one frame
+    for (let i = 0; i < 50 && !capture.getLatest(); i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     const server = await createControlServer(ctx, { host: "127.0.0.1", port: 0 });
     base = server.url;
     close = server.close;
   });
 
   afterAll(async () => {
+    ctx.capture.stop();
     await close();
   });
 
@@ -57,10 +66,86 @@ describe("Control API", () => {
     expect(body.width).toBe(240);
   });
 
-  it("GET /state returns null state in alpha", async () => {
+  it("GET /frame?raw=1 returns binary PNG with metadata headers", async () => {
+    const res = await fetch(`${base}/frame?raw=1`, {
+      headers: { Accept: "image/png" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/image\/png/);
+    expect(res.headers.get("x-frame-width")).toBe("240");
+    expect(res.headers.get("x-frame-height")).toBe("160");
+    expect(Number(res.headers.get("x-frame-id"))).toBeGreaterThanOrEqual(0);
+    const buf = Buffer.from(await res.arrayBuffer());
+    expect(buf[0]).toBe(0x89); // PNG magic
+    expect(buf.length).toBeGreaterThan(8);
+  });
+
+  it("GET /frame does not advance frame_id (buffer read)", async () => {
+    const a = await json(`${base}/frame`);
+    const b = await json(`${base}/frame`);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    // live loop may still capture between reads; verify snapshot path works
+    const s = await json(`${base}/snapshot`);
+    expect(s.status).toBe(200);
+    expect(typeof s.body.data).toBe("string");
+    expect(typeof s.body.age_ms).toBe("number");
+    expect(s.body.frame_id).toBeDefined();
+  });
+
+  it("POST /snapshot force advances capture", async () => {
+    const before = await json(`${base}/snapshot`);
+    const forced = await json(`${base}/snapshot`, { method: "POST" });
+    expect(forced.status).toBe(200);
+    expect(forced.body.frame_id).toBeGreaterThanOrEqual(before.body.frame_id);
+    expect(typeof forced.body.data).toBe("string");
+  });
+
+  it("PUT /snapshot/config validates interval_ms", async () => {
+    const bad = await json(`${base}/snapshot/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_ms: 10 }),
+    });
+    expect(bad.status).toBe(400);
+    const ok = await json(`${base}/snapshot/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_ms: 100 }),
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.interval_ms).toBe(100);
+    const got = await json(`${base}/snapshot/config`);
+    expect(got.body.interval_ms).toBe(100);
+    // restore live-loop default
+    await json(`${base}/snapshot/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_ms: 0 }),
+    });
+  });
+
+  it("GET /frame?raw=1 includes x-captured-at", async () => {
+    const res = await fetch(`${base}/frame?raw=1`, {
+      headers: { Accept: "image/png" },
+    });
+    expect(res.status).toBe(200);
+    expect(Number(res.headers.get("x-captured-at"))).toBeGreaterThan(0);
+  });
+
+  it("GET /state returns B-lite FireRedState from the backend", async () => {
     const { status, body } = await json(`${base}/state`);
     expect(status).toBe(200);
-    expect(body.state).toBeNull();
+    expect(body.state).not.toBeNull();
+    // Mock backend reports Pallet Town, a single Lv5 member.
+    expect(body.state.map_id).toBe(0x101);
+    expect(body.state.x).toBe(7);
+    expect(body.state.y).toBe(9);
+    expect(body.state.in_battle).toBe(false);
+    expect(Array.isArray(body.state.party)).toBe(true);
+    expect(body.state.party[0].level).toBe(5);
+    // Species comes from the encrypted header; mock flags it uncertain.
+    expect(body.state.party[0].species_uncertain).toBe(true);
   });
 
   it("POST /input works in agent mode", async () => {

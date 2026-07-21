@@ -15,6 +15,7 @@ import * as fs from "fs";
 import { createControlServer } from "../electron/control-api/server";
 import { ModeMachine } from "../electron/control-api/mode-machine";
 import { MockBackend } from "../electron/emulator/mock-backend";
+import { CaptureScheduler } from "../electron/emulator/capture-scheduler";
 import type { ControlContext } from "../electron/control-api/context";
 
 async function json(url: string, init?: RequestInit) {
@@ -27,23 +28,32 @@ describe("Pokemon Professor skill protocol", () => {
   let base: string;
   let close: () => Promise<void>;
   let tmp: string;
+  let capture: CaptureScheduler;
 
   beforeAll(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pp-skill-"));
     const backend = new MockBackend();
     await backend.start(path.join(tmp, "firered.gba"));
-    const ctx: ControlContext = {
+    let ctx: ControlContext;
+    capture = new CaptureScheduler(() => ctx.backend);
+    ctx = {
       mode: new ModeMachine(),
       backend,
+      capture,
       getRunId: () => "run-skill-1",
       getSaveDir: () => path.join(tmp, "saves"),
     };
+    capture.start();
+    for (let i = 0; i < 50 && !capture.getLatest(); i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     const server = await createControlServer(ctx, { host: "127.0.0.1", port: 0 });
     base = server.url;
     close = server.close;
   });
 
   afterAll(async () => {
+    capture.stop();
     await close();
   });
 

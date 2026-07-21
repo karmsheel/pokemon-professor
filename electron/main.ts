@@ -13,6 +13,7 @@ import {
 } from "./emulator/mgba-download";
 import { resolveBridgeScript } from "./emulator/mgba-supervisor";
 import type { EmulatorBackend } from "./emulator/backend";
+import { CaptureScheduler } from "./emulator/capture-scheduler";
 import { RunStore } from "./runs/store";
 import { appLayout } from "./paths";
 import {
@@ -20,6 +21,7 @@ import {
   type Button,
   type ControlMode,
 } from "./control-api/types";
+import type { ControlContext } from "./control-api/context";
 
 let mainWindow: BrowserWindow | null = null;
 let controlUrl = "";
@@ -29,13 +31,9 @@ let store: RunStore;
 let currentRunId: string | null = null;
 let layout: ReturnType<typeof appLayout>;
 let emulatorChoice: "mock" | "mgba" = "mock";
+let capture: CaptureScheduler;
 /** Mutable control context so backend swaps stay visible to the HTTP server. */
-let controlCtx: {
-  mode: ModeMachine;
-  backend: EmulatorBackend;
-  getRunId: () => string | null;
-  getSaveDir: () => string;
-};
+let controlCtx: ControlContext;
 
 function resolveEmulatorChoice(userData: string): "mock" | "mgba" {
   const env = (process.env.PP_EMULATOR || "").toLowerCase().trim();
@@ -75,9 +73,12 @@ async function bootstrap() {
   emulatorChoice = resolveEmulatorChoice(app.getPath("userData"));
   backend = createBackend(emulatorChoice, app.getPath("userData"));
 
+  // CaptureScheduler uses a getBackend closure so setBackend swaps stay live.
+  capture = new CaptureScheduler(() => controlCtx.backend);
   controlCtx = {
     mode,
     backend,
+    capture,
     getRunId: () => currentRunId,
     getSaveDir: () =>
       currentRunId ? layout.saves(currentRunId) : path.join(layout.root, "orphan-saves"),
@@ -219,6 +220,7 @@ async function bootstrap() {
     const run = store.create({ rom_path: romPath });
     currentRunId = run.id;
     const modeStarted = await startOrAttachBackend(romPath);
+    if (backend.isRomLoaded()) capture.start();
     store.appendEvent(run.id, {
       type: "run_started",
       detail: { emulator: backend.kind, connect: modeStarted },
@@ -242,6 +244,7 @@ async function bootstrap() {
         throw new Error("mGBA backend unavailable");
       }
       await backend.attach();
+      if (backend.isRomLoaded()) capture.start();
       const pathForRun =
         romPath ||
         (currentRunId ? store.get(currentRunId)?.rom_path : null) ||
@@ -282,6 +285,7 @@ async function bootstrap() {
 
     currentRunId = run.id;
     const modeStarted = await startOrAttachBackend(run.rom_path);
+    if (backend.isRomLoaded()) capture.start();
 
     const lastSavestate =
       run.savestates.length > 0
@@ -397,6 +401,7 @@ async function bootstrap() {
 app.whenReady().then(bootstrap);
 
 app.on("before-quit", () => {
+  capture?.stop();
   // stop() only kills mGBA if Studio spawned it (attach leaves external mGBA running)
   void backend?.stop().catch(() => undefined);
 });
