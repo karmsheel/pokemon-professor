@@ -41,7 +41,10 @@ Expect JSON including `ok: true`, `api_version: "0.1.0"`, `rom_loaded: true`, an
 |--------|------|---------|
 | GET | `/health` | API version, mode, emulator kind, rom_loaded, run_id |
 | GET | `/state` | Partial `FireRedState` or `{ "state": null }` (alpha stub) |
-| GET | `/frame` | PNG screenshot as base64 (`mime`, `data`, `width`, `height`, `frame_id`) |
+| GET | `/snapshot` | Latest PNG as base64 + `age_ms` (no capture) |
+| POST | `/snapshot` | Force fresh capture; returns same shape |
+| GET/PUT | `/snapshot/config` | `{ interval_ms }` — default 0; clamp 50–10000 |
+| GET | `/frame` | Studio live buffer (prefer `/snapshot` for vision) |
 | POST | `/input` | `{ "buttons": ["A","RIGHT",...] }` — max 5; agent mode only |
 | GET | `/mode` | Read `agent` \| `nudge` \| `drive` (observe only — never POST /mode) |
 | POST | `/save` | `{ "name": "descriptive_name" }` |
@@ -60,11 +63,18 @@ Always do both when possible:
 
 ```http
 GET http://127.0.0.1:7946/state
-GET http://127.0.0.1:7946/frame
+GET http://127.0.0.1:7946/snapshot
 ```
 
-- Decode `/frame` `data` (base64 PNG), save to a temp file (e.g. `/tmp/pp-frame.png` or `%TEMP%\pp-frame.png`), and use vision to inspect the screen.
+- Decode `/snapshot` `data` (base64 PNG), save to a temp file (e.g. `/tmp/pp-frame.png` or `%TEMP%\pp-frame.png`), and use vision to inspect the screen. Response includes `age_ms` (how old the buffer is).
+- After input or screen fade, force a fresh capture:
+
+```http
+POST http://127.0.0.1:7946/snapshot
+```
+
 - `/state` may be null in alpha — **vision is primary**. Ask specific questions: "what is one tile north?", "is dialog open?", "am I in battle?"
+- Prefer `/snapshot` for vision. Do **not** hammer `/frame` — it is a studio live buffer read, not an agent capture tool.
 
 ### 2. ORIENT
 
@@ -104,7 +114,7 @@ If `POST /input` returns **409**:
 
 ### 6. VERIFY
 
-After every short move sequence, `GET /frame` again and confirm with vision that you moved or advanced as intended. This is the most important step.
+After every short move sequence, `POST /snapshot` (or `GET /snapshot` if the buffer is already fresh) and confirm with vision that you moved or advanced as intended. This is the most important step.
 
 ### 7. SAVE (when useful)
 
@@ -127,12 +137,12 @@ Save before gyms, rival fights, new towns, or risky choices. Names: `[\w.-]+` on
 
 ### Use vision constantly
 
-- Screenshot every 2–4 steps. Ledges, doors, NPCs, and fences are vision-only when state is stubbed.
-- When stuck 3+ attempts: full re-observe, re-read mission, try a different path.
+- Snapshot every 2–4 steps via `/snapshot`. Ledges, doors, NPCs, and fences are vision-only when state is stubbed.
+- When stuck 3+ attempts: full re-observe (`POST /snapshot`), re-read mission, try a different path.
 
 ### Doors and warps
 
-- After walking through a door or stairs, the screen fades. Wait briefly (do not immediately spam more moves). Re-fetch `/frame` until the new map is visible before trusting position.
+- After walking through a door or stairs, the screen fades. Wait briefly (do not immediately spam more moves). `POST /snapshot` until the new map is visible before trusting position.
 
 ### Building exit trap
 
@@ -161,9 +171,12 @@ Save before gyms, rival fights, new towns, or risky choices. Names: `[\w.-]+` on
 ## Example curl sequences
 
 ```bash
-# Observe
+# Observe (latest buffer — no capture)
 curl -s http://127.0.0.1:7946/state
-curl -s http://127.0.0.1:7946/frame
+curl -s http://127.0.0.1:7946/snapshot
+
+# Force fresh capture after moves / fade
+curl -s -X POST http://127.0.0.1:7946/snapshot
 
 # Act (agent mode)
 curl -s -X POST http://127.0.0.1:7946/input \
@@ -184,6 +197,7 @@ curl -s -X POST http://127.0.0.1:7946/input \
 - NEVER send more than 5 buttons in one `/input`
 - NEVER `POST /mode` — Professor UI only
 - NEVER keep posting `/input` on 409 — wait for agent mode
-- ALWAYS re-observe with `/frame` after short move sequences
+- NEVER hammer `/frame` for vision — use `GET`/`POST /snapshot`
+- ALWAYS re-observe with `/snapshot` after short move sequences
 - ALWAYS sidestep after leaving buildings
 - ALWAYS treat chat mission text as the source of truth for objectives

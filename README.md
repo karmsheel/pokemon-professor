@@ -51,7 +51,10 @@ Typical Alpha flow:
 |--------|------|---------|
 | GET | `/health` | Ready check, mode, `rom_loaded`, run id |
 | GET | `/state` | Partial FireRed state (alpha may be stub/`null`) |
-| GET | `/frame` | PNG screenshot (base64) |
+| GET | `/snapshot` | Latest PNG as base64 + `age_ms` (no capture) |
+| POST | `/snapshot` | Force fresh capture; returns same shape |
+| GET/PUT | `/snapshot/config` | `{ interval_ms }` — default 0; clamp 50–10000 |
+| GET | `/frame` | Studio live buffer-read (prefer `/snapshot` for agent vision) |
 | POST | `/input` | `{ "buttons": [...] }` max 5; **agent** mode only |
 | GET/POST | `/mode` | `agent` \| `nudge` \| `drive` |
 | POST | `/save` / `/load` | Savestate by name |
