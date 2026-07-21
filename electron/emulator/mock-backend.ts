@@ -48,6 +48,7 @@ export class MockBackend implements EmulatorBackend {
 
   async getFramePng() {
     if (!this.loaded) throw new Error("rom not loaded");
+    this.frameId += 1;
     return {
       data: solidPng(),
       width: 240,
