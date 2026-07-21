@@ -69,6 +69,11 @@ describe("CaptureScheduler", () => {
     sched.setIntervalMs(200);
     sched.start();
     expect(sched.getIntervalMs()).toBe(0);
+    // start while already running must still reset interval (attach/createRun)
+    sched.setIntervalMs(200);
+    expect(sched.getIntervalMs()).toBe(200);
+    sched.start();
+    expect(sched.getIntervalMs()).toBe(0);
   });
 
   it("stop clears latest", async () => {
@@ -76,5 +81,27 @@ describe("CaptureScheduler", () => {
     sched.stop();
     expect(sched.getLatest()).toBeNull();
     expect(sched.isRunning()).toBe(false);
+  });
+
+  it("forceCapture does not write latest after stop mid-flight", async () => {
+    const original = backend.getFramePng.bind(backend);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    backend.getFramePng = async () => {
+      await gate;
+      return original();
+    };
+
+    const pending = sched.forceCapture();
+    // Let the force enter getFramePng, then stop (bumps generation, clears latest).
+    await new Promise((r) => setTimeout(r, 10));
+    sched.stop();
+    release();
+
+    await expect(pending).rejects.toThrow(/capture aborted/);
+    expect(sched.getLatest()).toBeNull();
+    expect(sched.getCaptureCount()).toBe(0);
   });
 });

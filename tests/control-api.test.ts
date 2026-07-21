@@ -93,6 +93,22 @@ describe("Control API", () => {
     expect(s.body.frame_id).toBeDefined();
   });
 
+  it("GET /frame after stop does not advance captureCount", async () => {
+    ctx.capture.stop();
+    const n = ctx.capture.getCaptureCount();
+    const a = await json(`${base}/frame`);
+    const b = await json(`${base}/frame`);
+    // no latest after stop → 404 buffer reads, no new captures
+    expect(a.status).toBe(404);
+    expect(b.status).toBe(404);
+    expect(ctx.capture.getCaptureCount()).toBe(n);
+    // restore live loop for remaining tests
+    ctx.capture.start();
+    for (let i = 0; i < 50 && !ctx.capture.getLatest(); i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  });
+
   it("POST /snapshot force advances capture", async () => {
     const before = await json(`${base}/snapshot`);
     const forced = await json(`${base}/snapshot`, { method: "POST" });

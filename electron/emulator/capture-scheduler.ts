@@ -18,7 +18,6 @@ export class CaptureScheduler {
   private running = false;
   private intervalMs = 0;
   private captureCount = 0;
-  private liveChain: Promise<void> = Promise.resolve();
   private forceChain: Promise<unknown> = Promise.resolve();
   private intervalTimer: ReturnType<typeof setInterval> | null = null;
   private loopGeneration = 0;
@@ -26,10 +25,11 @@ export class CaptureScheduler {
   constructor(private readonly getBackend: () => EmulatorBackend) {}
 
   start(): void {
-    if (this.running) return;
-    this.running = true;
+    // Spec: every attach/createRun resets interval, even if already running.
     this.intervalMs = 0;
     this.clearIntervalTimer();
+    if (this.running) return;
+    this.running = true;
     this.captureCount = 0;
     const gen = ++this.loopGeneration;
     void this.runLiveLoop(gen);
@@ -86,12 +86,19 @@ export class CaptureScheduler {
   }
 
   async forceCapture(): Promise<CapturedFrame> {
+    // Note generation at call time (before forceChain queue / getFramePng) so
+    // stop() during either wait invalidates this capture and must not write latest.
+    const gen = this.loopGeneration;
     const run = async (): Promise<CapturedFrame> => {
       const backend = this.getBackend();
       if (!backend.isRomLoaded()) {
         throw new Error("rom not loaded");
       }
       const frame = await backend.getFramePng();
+      // stop() bumps loopGeneration and clears latest — never resurrect the buffer.
+      if (this.loopGeneration !== gen) {
+        throw new Error("capture aborted");
+      }
       const captured: CapturedFrame = {
         data: frame.data,
         width: frame.width,
@@ -103,7 +110,7 @@ export class CaptureScheduler {
       this.captureCount += 1;
       return captured;
     };
-    // Serialize forces with each other; live loop also uses captureOnce under the hood.
+    // Serialize forces with each other; live loop also uses forceCapture.
     const p = this.forceChain.then(run, run);
     this.forceChain = p.then(
       () => undefined,
