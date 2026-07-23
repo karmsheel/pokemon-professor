@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-type ControlMode = "agent" | "nudge" | "drive";
+import type { ControlMode } from "@/electron/control-api/types";
+import { resolveDriveKey } from "@/lib/drive-keys";
 
 type OverrideControlsProps = {
   mode: ControlMode;
@@ -79,21 +79,19 @@ export function OverrideControls({
     if (mode !== "drive") return;
 
     const onKeyDown = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        ev.stopPropagation();
+      const action = resolveDriveKey(ev.key, mode);
+      if (action.kind === "none") return;
+
+      // Drive owns these keys while mode is drive: preventDefault + stopPropagation
+      // so Enter/arrows/Shift never reach the chat bar even if it has focus.
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      if (action.kind === "setMode") {
         void setMode("agent");
         return;
       }
 
-      // Normalize ShiftLeft/ShiftRight → SELECT (ev.key is "Shift")
-      const button = KEY_MAP[ev.key];
-      if (!button) return;
-
-      // Ignore chat/form focus: drive owns these keys while mode is drive.
-      // preventDefault + stopPropagation so Enter/arrows never hit chat.
-      ev.preventDefault();
-      ev.stopPropagation();
       if (ev.repeat) return;
 
       // Soft-refocus live view if user clicked into chat (ignore chat focus).
@@ -107,9 +105,9 @@ export function OverrideControls({
         return;
       }
       void window.studio
-        .driveInput([button])
+        .driveInput([action.button])
         .then(() => {
-          setLastInput(button);
+          setLastInput(action.button);
           setError(null);
         })
         .catch((e: unknown) => {
