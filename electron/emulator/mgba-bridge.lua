@@ -315,10 +315,15 @@ if callbacks and callbacks.add then
   callbacks:add("frame", update_keys)
 end
 
+-- Rotate a few screenshot slots so a slow reader never hits a mid-write file.
+local frameSlot = 0
+local FRAME_SLOTS = 4
+
 local function frame_temp_path()
   local tmp = os.getenv("TEMP") or os.getenv("TMP") or "."
   tmp = tmp:gsub("\\", "/")
-  return tmp .. "/pp-mgba-frame.png"
+  frameSlot = (frameSlot % FRAME_SLOTS) + 1
+  return tmp .. "/pp-mgba-frame-" .. tostring(frameSlot) .. ".png"
 end
 
 -- ---------- command handlers ----------
@@ -327,13 +332,25 @@ local function handle_ping(_msg)
   return { ok = true, pong = true }
 end
 
-local function handle_frame(_msg)
+local function handle_frame(msg)
   local core = API.core()
   local path = frame_temp_path()
   if not core.screenshot then
     return { ok = false, error = "screenshot API missing on this mGBA build" }
   end
   core:screenshot(path)
+  -- Fast path (default): return filesystem path only. Studio reads the file
+  -- locally and avoids multi-KB base64 over TCP JSON (critical for live view FPS).
+  -- Set include_b64=true for clients that cannot read the temp file.
+  local want_b64 = msg and msg.include_b64 == true
+  if not want_b64 then
+    return {
+      ok = true,
+      width = 240,
+      height = 160,
+      path = path,
+    }
+  end
   local f = io.open(path, "rb")
   if not f then
     return { ok = false, error = "screenshot file not readable: " .. path }
@@ -408,7 +425,111 @@ local handlers = {
   input = handle_input,
   save = handle_save,
   load = handle_load,
+  state = handle_state,
 }
+
+-- ---------- FireRed (US) state (B-lite) ----------
+
+-- FireRed (US) RAM offsets (Data Crystal RAM map, 3rd-gen / FR/LG).
+-- Player X/Y live in the DMA map-struct at [0x03005008]; the first u32 there
+-- is the struct pointer, so the "current map" fields are at base+4 (map) and
+-- base+5 (bank). X/Y are at base+0 and base+2.
+local FR_PLAYER_PTR = 0x03005008
+
+-- Badges + in-battle use documented but ROM-version-sensitive offsets; reads
+-- are individually guarded so a wrong offset degrades one field, not the call.
+local FR_BADGES = 0x020257A1  -- save-block 1 (trainer card), 1 byte bitfield
+local FR_IN_BATTLE = 0x02022B4B -- "flags for current battle" (1.0/1.1)
+
+local STATUS_NAMES = {
+  [0x00] = nil,   -- none
+  [0x01] = "PAR",
+  [0x03] = "BRN",
+  [0x05] = "FRZ",
+  [0x07] = "SLE",
+  [0x08] = "PSN",
+  [0x09] = "PSN",
+  [0x0B] = "PSN",
+  [0x0A] = "BRN",
+}
+
+local function read_state()
+  local core = API.core()
+  local rd8 = function(addr)
+    local ok, v = pcall(function() return core:read8(addr) end)
+    if ok then return v end
+    return nil
+  end
+  local rd16 = function(addr)
+    local ok, v = pcall(function() return core:read16(addr) end)
+    if ok then return v end
+    return nil
+  end
+  local rd32 = function(addr)
+    local ok, v = pcall(function() return core:read32(addr) end)
+    if ok then return v end
+    return nil
+  end
+
+  local state = {}
+
+  -- Player X/Y + current map (bank/number)
+  local pptr = rd32(FR_PLAYER_PTR)
+  if pptr then
+    local x = rd16(pptr + 0)
+    local y = rd16(pptr + 2)
+    local map = rd8(pptr + 4)
+    local bank = rd8(pptr + 5)
+    if x and y then
+      state.x = x
+      state.y = y
+    end
+    if map and bank then
+      state.map_id = map + bank * 256
+    end
+  end
+
+  -- Party (6 slots, 100 bytes each, unencrypted tail)
+  local party_base = 0x02024284
+  local party = {}
+  for i = 0, 5 do
+    local b = party_base + i * 100
+    local cur = rd16(b + 0x54)   -- current HP (tail, unencrypted)
+    if cur == nil then break end  -- empty slot terminates the party
+    local member = { hp = cur }
+    local max = rd16(b + 0x56)
+    if max then member.max_hp = max end
+    -- level at +0x58, status condition at +0x5A (1 byte)
+    local lvl = rd8(b + 0x58)
+    if lvl then member.level = lvl end
+    local st = rd8(b + 0x5A)
+    if st then
+      local name = STATUS_NAMES[st]
+      if name then member.status = name end
+    end
+    member.species_uncertain = true -- header (encrypted) not decoded
+    table.insert(party, member)
+  end
+  if #party > 0 then state.party = party end
+
+  -- Badges (guarded)
+  local badges = rd8(FR_BADGES)
+  if badges then state.badges = badges end
+
+  -- In battle (guarded)
+  local ib = rd8(FR_IN_BATTLE)
+  if ib then state.in_battle = ib ~= 0 end
+
+  return state
+end
+
+local function handle_state(_msg)
+  local ok, state = pcall(read_state)
+  if not ok then
+    return { ok = false, error = "state read failed: " .. tostring(state) }
+  end
+  return { ok = true, state = state }
+end
 
 local function handle_line(line)
   line = (line or ""):match("^(.-)%s*$") or ""

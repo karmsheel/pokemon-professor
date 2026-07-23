@@ -283,8 +283,38 @@ label {
   overflow: hidden;
 }
 
-.live-view > h2 {
+.live-view-header {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 1.25rem;
+}
+
+.live-view-header h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Fixed slot on the right so fps/meta below never shift when errors appear. */
+.live-view-error {
+  flex: 0 1 auto;
+  max-width: min(55%, 16rem);
+  margin: 0;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.12);
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .live-view > .live-meta {
@@ -323,7 +353,9 @@ label {
 }
 
 .live-frame {
-  /* Fill the viewport box; object-fit keeps 240∶160 letterboxed */
+  /* Absolute fill — avoids layout reflow / zoom pulse when frames swap */
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -334,6 +366,10 @@ label {
   background: #000;
   border: 0;
   display: block;
+}
+
+.live-frame[hidden] {
+  display: none !important;
 }
 
 .live-frame-placeholder {

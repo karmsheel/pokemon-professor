@@ -53,9 +53,17 @@ describe("MockBackend", () => {
     expect(saves).toContain("before_brock");
   });
 
-  it("getState returns stub null party shape for alpha", async () => {
+  it("getState returns B-lite FireRedState (mock)", async () => {
     await backend.start("x.gba");
     const state = await backend.getState();
-    expect(state).toEqual(null);
+    expect(state).not.toBeNull();
+    expect(state!.map_id).toBe(0x101);
+    expect(state!.x).toBe(7);
+    expect(state!.y).toBe(9);
+    expect(state!.in_battle).toBe(false);
+    expect(state!.party).toHaveLength(1);
+    expect(state!.party![0].level).toBe(5);
+    // Species from encrypted header is intentionally not decoded.
+    expect(state!.party![0].species_uncertain).toBe(true);
   });
 });

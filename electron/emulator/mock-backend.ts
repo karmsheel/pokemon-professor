@@ -58,7 +58,17 @@ export class MockBackend implements EmulatorBackend {
   }
 
   async getState(): Promise<FireRedState | null> {
-    return null;
+    if (!this.loaded) return null;
+    return {
+      x: 7,
+      y: 9,
+      map_id: 0x101, // Pallet Town (bank 1, map 1) — illustrative for mock
+      in_battle: false,
+      badges: 0,
+      party: [
+        { hp: 24, max_hp: 24, level: 5, status: undefined, species_uncertain: true },
+      ],
+    };
   }
 
   async press(buttons: Button[]): Promise<void> {

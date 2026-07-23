@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
-import type { Button, EmulatorBackend, FireRedState } from "../control-api/types";
+import type { Button, EmulatorBackend, FireRedState, FireRedPartyMember } from "../control-api/types";
 import {
   DEFAULT_BRIDGE_PORT,
   resolveBridgeScript,
@@ -65,6 +65,21 @@ export class MgbaBackend implements EmulatorBackend {
   private readonly exePath: string;
   private readonly scriptPath: string;
   private readonly bridgePort: number;
+
+  /**
+   * Persistent bridge socket + serialized command queue.
+   * Opening a new TCP connection per frame at ~20Hz races mGBA's Lua socket
+   * layer ("bridge connection closed") and produces intermittent /frame 500s.
+   */
+  private bridgeSocket: net.Socket | null = null;
+  private bridgeBuf = "";
+  private bridgePending: {
+    resolve: (v: BridgeResponse) => void;
+    reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  /** Tail of the command queue (always settles). */
+  private bridgeChain: Promise<void> = Promise.resolve();
 
   constructor(opts: MgbaBackendOptions) {
     this.exePath = opts.exePath;
@@ -154,6 +169,7 @@ export class MgbaBackend implements EmulatorBackend {
 
   async stop(): Promise<void> {
     this.loaded = false;
+    this.dropBridgeSocket();
     if (this.ownsProcess && this.proc) {
       this.proc.stop();
     }
@@ -180,6 +196,7 @@ export class MgbaBackend implements EmulatorBackend {
     frame_id: number;
   }> {
     this.assertLoaded();
+    // Path-only frame response (default) — no base64 over the bridge TCP JSON.
     const res = (await this.request({ cmd: "frame" })) as (BridgeOk | BridgeErr) & {
       width?: number;
       height?: number;
@@ -190,14 +207,28 @@ export class MgbaBackend implements EmulatorBackend {
       throw new Error((res as BridgeErr).error || "frame failed");
     }
     let data: Buffer | null = null;
-    if (typeof res.png_base64 === "string" && res.png_base64.length > 0) {
+    // Prefer filesystem path (fast path from bridge). Fall back to embedded b64.
+    if (typeof res.path === "string" && res.path.length > 0) {
+      if (fs.existsSync(res.path)) {
+        data = fs.readFileSync(res.path);
+      }
+    }
+    if (
+      (!data || data.length === 0) &&
+      typeof res.png_base64 === "string" &&
+      res.png_base64.length > 0
+    ) {
       data = Buffer.from(res.png_base64, "base64");
-    } else if (typeof res.path === "string" && fs.existsSync(res.path)) {
-      data = fs.readFileSync(res.path);
     }
     if (!data || data.length === 0) {
       throw new Error("frame response missing png data");
     }
+    // Reject truncated / non-PNG so the UI never paints a broken image (zoom flicker).
+    if (data[0] !== 0x89 || data[1] !== 0x50 || data[2] !== 0x4e || data[3] !== 0x47) {
+      throw new Error("frame data is not a valid PNG");
+    }
+    // Each capture is a new live screenshot — advance id so UI can track freshness.
+    this.frameId += 1;
     return {
       data,
       width: res.width ?? 240,
@@ -207,8 +238,53 @@ export class MgbaBackend implements EmulatorBackend {
   }
 
   async getState(): Promise<FireRedState | null> {
-    // Memory reads for FireRed state are out of alpha scope for the bridge.
-    return null;
+    if (!this.loaded) return null;
+    let res: { ok?: boolean; state?: Record<string, unknown>; error?: string };
+    try {
+      res = (await this.request({ cmd: "state" })) as typeof res;
+    } catch (e) {
+      // Bridge unreachable — keep /state alive (frame still works).
+      console.warn("[pp] getState bridge error:", (e as Error).message);
+      return null;
+    }
+    if (!res?.ok || !res.state) return null;
+
+    const raw = res.state as Record<string, unknown>;
+    const state: FireRedState = {};
+
+    // x/y
+    if (typeof raw.x === "number") state.x = raw.x;
+    if (typeof raw.y === "number") state.y = raw.y;
+
+    // map_id (merge bank+number)
+    if (typeof raw.map_id === "number") state.map_id = raw.map_id;
+
+    // in_battle
+    if (typeof raw.in_battle === "boolean") state.in_battle = raw.in_battle;
+
+    // badges (bitfield → count, keep raw too)
+    if (typeof raw.badges === "number") {
+      state.badges = raw.badges;
+    }
+
+    // money deferred: XOR-encrypted, base offset uncertain for FR.
+    // party (B-lite: hp/max_hp/level/status from unencrypted tail; species
+    // from encrypted header is NOT decoded → species_uncertain=true)
+    if (Array.isArray(raw.party)) {
+      const party: FireRedPartyMember[] = [];
+      for (const m of raw.party as Array<Record<string, unknown>>) {
+        const member: FireRedPartyMember = {};
+        if (typeof m.hp === "number") member.hp = m.hp;
+        if (typeof m.max_hp === "number") member.max_hp = m.max_hp;
+        if (typeof m.level === "number") member.level = m.level;
+        if (typeof m.status === "string") member.status = m.status;
+        member.species_uncertain = true;
+        party.push(member);
+      }
+      if (party.length > 0) state.party = party;
+    }
+
+    return state;
   }
 
   async press(buttons: Button[]): Promise<void> {
@@ -276,56 +352,127 @@ export class MgbaBackend implements EmulatorBackend {
     );
   }
 
+  private dropBridgeSocket(): void {
+    const sock = this.bridgeSocket;
+    this.bridgeSocket = null;
+    this.bridgeBuf = "";
+    if (this.bridgePending) {
+      const p = this.bridgePending;
+      this.bridgePending = null;
+      clearTimeout(p.timer);
+      p.reject(new Error("bridge connection closed"));
+    }
+    if (sock) {
+      sock.removeAllListeners();
+      sock.destroy();
+    }
+  }
+
+  private ensureBridgeSocket(): Promise<net.Socket> {
+    if (this.bridgeSocket && !this.bridgeSocket.destroyed) {
+      return Promise.resolve(this.bridgeSocket);
+    }
+    return new Promise((resolve, reject) => {
+      const socket = net.connect({ host: "127.0.0.1", port: this.bridgePort });
+      let opened = false;
+
+      socket.setEncoding("utf8");
+      socket.on("connect", () => {
+        opened = true;
+        this.bridgeSocket = socket;
+        this.bridgeBuf = "";
+        resolve(socket);
+      });
+      socket.on("data", (chunk: string) => {
+        this.bridgeBuf += chunk;
+        while (true) {
+          const nl = this.bridgeBuf.indexOf("\n");
+          if (nl === -1) break;
+          const line = this.bridgeBuf.slice(0, nl).replace(/\r$/, "");
+          this.bridgeBuf = this.bridgeBuf.slice(nl + 1);
+          if (!this.bridgePending) continue;
+          const pending = this.bridgePending;
+          this.bridgePending = null;
+          clearTimeout(pending.timer);
+          try {
+            pending.resolve(JSON.parse(line) as BridgeResponse);
+          } catch (e) {
+            pending.reject(
+              new Error(
+                `invalid bridge JSON: ${e instanceof Error ? e.message : String(e)}`
+              )
+            );
+          }
+        }
+      });
+      socket.on("error", (err) => {
+        if (!opened) {
+          reject(err);
+          return;
+        }
+        this.dropBridgeSocket();
+      });
+      socket.on("close", () => {
+        if (this.bridgeSocket === socket) {
+          this.dropBridgeSocket();
+        } else if (!opened) {
+          reject(new Error("bridge connection closed"));
+        }
+      });
+    });
+  }
+
+  /**
+   * Send one line-delimited JSON command and wait for one response line.
+   * All commands share a single persistent socket and run one-at-a-time.
+   */
   private request(
     payload: Record<string, unknown>,
     timeoutMs = REQUEST_TIMEOUT_MS
   ): Promise<BridgeResponse> {
-    const body = JSON.stringify(payload) + "\n";
-    return new Promise((resolve, reject) => {
-      const socket = net.connect({ host: "127.0.0.1", port: this.bridgePort });
-      let buf = "";
-      let settled = false;
-
-      const finish = (err?: Error, value?: BridgeResponse) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        socket.destroy();
-        if (err) reject(err);
-        else resolve(value!);
+    const run = async (): Promise<BridgeResponse> => {
+      const attempt = async (): Promise<BridgeResponse> => {
+        const socket = await this.ensureBridgeSocket();
+        if (this.bridgePending) {
+          throw new Error("bridge command already in flight");
+        }
+        return new Promise<BridgeResponse>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            if (this.bridgePending) {
+              this.bridgePending = null;
+              this.dropBridgeSocket();
+              reject(
+                new Error(`bridge request timed out after ${timeoutMs}ms`)
+              );
+            }
+          }, timeoutMs);
+          this.bridgePending = { resolve, reject, timer };
+          try {
+            socket.write(JSON.stringify(payload) + "\n");
+          } catch (e) {
+            this.bridgePending = null;
+            clearTimeout(timer);
+            this.dropBridgeSocket();
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
+        });
       };
 
-      const timer = setTimeout(() => {
-        finish(new Error(`bridge request timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+      try {
+        return await attempt();
+      } catch (e) {
+        // One reconnect+retry for transient close races under load.
+        this.dropBridgeSocket();
+        return await attempt();
+      }
+    };
 
-      socket.setEncoding("utf8");
-      socket.on("connect", () => {
-        socket.write(body);
-      });
-      socket.on("data", (chunk: string) => {
-        buf += chunk;
-        const nl = buf.indexOf("\n");
-        if (nl === -1) return;
-        const line = buf.slice(0, nl).replace(/\r$/, "");
-        try {
-          const parsed = JSON.parse(line) as BridgeResponse;
-          finish(undefined, parsed);
-        } catch (e) {
-          finish(
-            new Error(
-              `invalid bridge JSON: ${e instanceof Error ? e.message : String(e)}`
-            )
-          );
-        }
-      });
-      socket.on("error", (err) => {
-        finish(err);
-      });
-      socket.on("close", () => {
-        if (!settled) finish(new Error("bridge connection closed"));
-      });
-    });
+    const next = this.bridgeChain.then(run, run);
+    this.bridgeChain = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 }
 

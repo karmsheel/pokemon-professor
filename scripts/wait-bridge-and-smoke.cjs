@@ -91,8 +91,11 @@ function log(ok, name, detail) {
   r = await req({ cmd: "frame" });
   check(
     "frame",
-    r.ok === true && r.width === 240 && r.height === 160 && !!r.png_base64,
-    `w=${r.width} h=${r.height} b64len=${(r.png_base64 || "").length}`
+    r.ok === true &&
+      r.width === 240 &&
+      r.height === 160 &&
+      (!!r.path || !!r.png_base64),
+    `w=${r.width} h=${r.height} path=${r.path || "-"} b64len=${(r.png_base64 || "").length}`
   );
 
   r = await req({ cmd: "input", buttons: ["A"] });

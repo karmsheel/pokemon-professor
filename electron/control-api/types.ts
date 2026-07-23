@@ -33,18 +33,23 @@ export const VALID_BUTTONS = new Set<Button>([
 /** Savestate / load names: word chars, dots, hyphens only (no path separators). */
 export const SAVE_NAME_RE = /^[\w.-]+$/;
 
+export interface FireRedPartyMember {
+  /** National species id (1-251). `species_uncertain` true means it came from the */
+  /** encrypted header and the agent should prefer reading the sprite/frame. */
+  species?: number;
+  species_uncertain?: boolean;
+  level?: number;
+  hp?: number;
+  max_hp?: number;
+  status?: string;
+}
+
 export interface FireRedState {
   map_id?: number;
   map_name?: string;
   x?: number;
   y?: number;
-  party?: Array<{
-    species?: string;
-    level?: number;
-    hp?: number;
-    max_hp?: number;
-    status?: string;
-  }>;
+  party?: FireRedPartyMember[];
   in_battle?: boolean;
   badges?: number;
   money?: number;
