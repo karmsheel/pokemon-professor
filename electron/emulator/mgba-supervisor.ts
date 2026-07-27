@@ -9,6 +9,9 @@ export type SpawnMgbaOpts = {
   romPath: string;
   scriptPath: string;
   bridgePort: number;
+  /** When true, spawn the Pokemon Professor mGBA fork headless (no window,
+   *  bridge auto-starts — no manual Lua load). Mutually exclusive with script. */
+  headless?: boolean;
   /** When true, hide console window on Windows (default false so user can load script). */
   windowsHide?: boolean;
 };
@@ -36,8 +39,28 @@ export function resolveBridgeScript(fromDir?: string): string {
     if (fs.existsSync(c)) return path.resolve(c);
   }
   throw new Error(
-    `mgba-bridge.lua not found. Tried:\n${candidates.join("\n")}`
+    `mgba-bridge.lua not found. Tried:\\n${candidates.join("\\n")}`
   );
+}
+
+/**
+ * Resolve the Pokemon Professor headless fork executable.
+ * Priority: PP_MGBA_FORK_EXE env > vendored build dir > dist-electron build dir.
+ * Returns null if no fork binary is present (caller falls back to shipped mGBA).
+ */
+export function resolveForkExe(): string | null {
+  if (process.env.PP_MGBA_FORK_EXE && fs.existsSync(process.env.PP_MGBA_FORK_EXE)) {
+    return process.env.PP_MGBA_FORK_EXE;
+  }
+  const candidates = [
+    path.join(process.cwd(), "vendor", "mgba", "build", "mgba.exe"),
+    path.join(__dirname, "..", "..", "vendor", "mgba", "build", "mgba.exe"),
+    path.join(process.cwd(), "dist-electron", "vendor", "mgba", "build", "mgba.exe"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return path.resolve(c);
+  }
+  return null;
 }
 
 /**
@@ -50,12 +73,62 @@ export function resolveBridgeScript(fromDir?: string): string {
  * The bridge then listens on bridgePort (default 7947).
  */
 export async function spawnMgba(opts: SpawnMgbaOpts): Promise<MgbaProcess> {
-  const { exePath, romPath, scriptPath, bridgePort } = opts;
+  const { exePath, romPath, scriptPath, bridgePort, headless } = opts;
   if (!fs.existsSync(exePath)) {
     throw new Error(`mGBA executable not found: ${exePath}`);
   }
   if (!fs.existsSync(romPath)) {
     throw new Error(`ROM not found: ${romPath}`);
+  }
+  if (headless) {
+    // Fork: bridge auto-starts, no Lua script needed.
+    const args = ["--agent-headless", romPath, "--agent-bridge=" + bridgePort];
+    const child = spawn(exePath, args, {
+      detached: false,
+      windowsHide: true,
+      stdio: ["ignore", "ignore", "pipe"],
+      env: {
+        ...process.env,
+        PP_MGBA_BRIDGE_PORT: String(bridgePort),
+      },
+    });
+    if (child.pid == null) {
+      throw new Error("failed to spawn headless mGBA (no pid)");
+    }
+    let stderr = "";
+    child.stderr?.on("data", (d) => {
+      stderr += d.toString();
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    const stop = () => {
+      if (child.killed) return;
+      try {
+        if (process.platform === "win32" && child.pid) {
+          spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+            windowsHide: true,
+            stdio: "ignore",
+          });
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        try { child.kill(); } catch { /* ignore */ }
+      }
+    };
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => resolve(), 400);
+      child.once("error", (err) => {
+        clearTimeout(t);
+        reject(new Error(`headless mGBA spawn error: ${err.message}`));
+      });
+      child.once("exit", (code) => {
+        clearTimeout(t);
+        if (code != null && code !== 0) {
+          reject(new Error(`headless mGBA exited immediately with code ${code}. stderr: ${stderr.slice(0, 300)}`));
+        }
+      });
+    });
+    return { stop, pid: child.pid, child, scriptPath: "", bridgePort };
   }
   if (!fs.existsSync(scriptPath)) {
     throw new Error(`Bridge script not found: ${scriptPath}`);

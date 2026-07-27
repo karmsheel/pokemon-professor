@@ -35,6 +35,8 @@ export type MgbaBackendOptions = {
   /** Defaults to resolveBridgeScript() */
   scriptPath?: string;
   bridgePort?: number;
+  /** Spawn the Pokemon Professor headless fork (bridge auto-starts). */
+  headless?: boolean;
 };
 
 export type MgbaStartOptions = {
@@ -65,6 +67,7 @@ export class MgbaBackend implements EmulatorBackend {
   private readonly exePath: string;
   private readonly scriptPath: string;
   private readonly bridgePort: number;
+  private readonly headless: boolean;
 
   /**
    * Persistent bridge socket + serialized command queue.
@@ -85,6 +88,7 @@ export class MgbaBackend implements EmulatorBackend {
     this.exePath = opts.exePath;
     this.scriptPath = opts.scriptPath ?? resolveBridgeScript();
     this.bridgePort = opts.bridgePort ?? DEFAULT_BRIDGE_PORT;
+    this.headless = opts.headless === true;
   }
 
   /** True if something is answering ping on the bridge port. */
@@ -149,6 +153,7 @@ export class MgbaBackend implements EmulatorBackend {
       romPath,
       scriptPath: this.scriptPath,
       bridgePort: this.bridgePort,
+      headless: this.headless,
     });
     this.ownsProcess = true;
 

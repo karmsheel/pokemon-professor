@@ -11,7 +11,7 @@ import {
   MgbaMissingError,
   mgbaExePath,
 } from "./emulator/mgba-download";
-import { resolveBridgeScript } from "./emulator/mgba-supervisor";
+import { resolveBridgeScript, resolveForkExe } from "./emulator/mgba-supervisor";
 import type { EmulatorBackend } from "./emulator/backend";
 import { CaptureScheduler } from "./emulator/capture-scheduler";
 import { RunStore } from "./runs/store";
@@ -52,6 +52,16 @@ function createBackend(choice: "mock" | "mgba", userData: string): EmulatorBacke
       // Allow constructing MgbaBackend after a later ensureMgba download;
       // createRun will re-check and fail clearly if still missing.
       exe = mgbaExePath(userData);
+    }
+    // Prefer the Pokemon Professor headless fork when present: it auto-starts
+    // the control bridge with no window and no manual Lua load step.
+    const forkExe = resolveForkExe();
+    if (forkExe) {
+      return new MgbaBackend({
+        exePath: forkExe,
+        scriptPath: resolveBridgeScript(),
+        headless: true,
+      });
     }
     return new MgbaBackend({
       exePath: exe,
