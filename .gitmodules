@@ -1,4 +1,4 @@
 [submodule "vendor/mgba"]
 	path = vendor/mgba
-	url = ./vendor/mgba
+	url = https://github.com/karmsheel/mgba.git
 	branch = pokemon-professor-fork
