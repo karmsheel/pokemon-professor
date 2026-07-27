@@ -250,6 +250,25 @@ export async function handleRequest(
       });
     }
 
+    if (method === "POST" && p === "/run") {
+      if (typeof ctx.startRun !== "function") {
+        return send(res, 501, { ok: false, error: "run-start not available" });
+      }
+      const body = (await readJson(req)) as { rom_path?: string };
+      if (!body.rom_path || typeof body.rom_path !== "string") {
+        return send(res, 400, { ok: false, error: "rom_path required" });
+      }
+      try {
+        const run = await ctx.startRun(body.rom_path);
+        return send(res, 200, { ok: true, ...run });
+      } catch (e) {
+        return send(res, 502, {
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     if (method === "POST" && p === "/save") {
       const body = (await readJson(req)) as { name?: string };
       if (!body.name || !SAVE_NAME_RE.test(body.name)) {

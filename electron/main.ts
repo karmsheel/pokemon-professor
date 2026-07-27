@@ -100,6 +100,15 @@ async function bootstrap() {
   });
   controlUrl = server.url;
 
+  // Headless E2E hook: POST /run starts a run exactly like studio:createRun.
+  controlCtx.startRun = async (romPath: string) => {
+    const run = store.create({ rom_path: romPath });
+    currentRunId = run.id;
+    const connect = await startOrAttachBackend(romPath);
+    if (backend.isRomLoaded()) capture.start();
+    return { id: run.id, connect };
+  };
+
   ipcMain.handle("studio:getControlUrl", () => controlUrl);
   ipcMain.handle("studio:getPaths", () => layout);
   ipcMain.handle("studio:getEmulatorInfo", async () => {

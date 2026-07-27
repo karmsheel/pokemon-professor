@@ -8,4 +8,10 @@ export interface ControlContext {
   capture: CaptureScheduler;
   getRunId: () => string | null;
   getSaveDir: () => string;
+  /**
+   * Optional run-starter used by the headless E2E (POST /run). Mirrors the
+   * studio:createRun IPC handler: creates a run, starts/attaches the backend
+   * with the ROM, and begins capture. Set by main bootstrap.
+   */
+  startRun?: (romPath: string) => Promise<{ id: string; connect: "attach" | "spawn" | "mock" }>;
 }
