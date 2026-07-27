@@ -9,7 +9,9 @@
     "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').mkdirSync('dist-electron/emulator',{recursive:true});require('fs').copyFileSync('electron/emulator/mgba-bridge.lua','dist-electron/emulator/mgba-bridge.lua')\"",
     "dev:web": "next dev -p 3848",
     "dev:electron": "npm run build:electron && electron .",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "fork:build": "bash scripts/build-fork.sh",
+    "fork:download": "node scripts/download-fork.cjs"
   },
   "dependencies": {
     "next": "^15.1.0",

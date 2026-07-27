@@ -1,5 +1,6 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import * as path from "path";
+import * as fs from "fs";
 import { MgbaBackend } from "../electron/emulator/mgba-backend";
 import { resolveForkExe } from "../electron/emulator/mgba-supervisor";
 
@@ -13,8 +14,27 @@ import { resolveForkExe } from "../electron/emulator/mgba-supervisor";
  *
  * Requires the fork binary to be built (npm run fork:build or ninja in
  * vendor/mgba/build). Skips gracefully if no fork exe is present.
+ *
+ * NOTE: the fork is dynamically linked against the MSYS2 ucrt64 runtime, so its
+ * DLLs must be on PATH when spawned. We ensure that here, mirroring how the
+ * Electron Studio must be launched (PP_EMULATOR=mgba with ucrt64 on PATH).
  */
 const ROM = path.join(process.cwd(), ".local-roms", "PokemonFireRed.gba");
+
+function ensureUcrt64OnPath(): void {
+  // Use Windows-native path form so Node's fs/spawn resolve it on Windows.
+  const bin = "C:\\msys64\\ucrt64\\bin";
+  if (fs.existsSync(path.join(bin, "gcc.exe"))) {
+    const parts = (process.env.PATH ?? "").split(path.delimiter);
+    if (!parts.includes(bin)) {
+      process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
+    }
+  }
+}
+
+beforeAll(() => {
+  ensureUcrt64OnPath();
+});
 
 describe("Studio <-> headless mGBA fork (E2E)", () => {
   const backend = new MgbaBackend({

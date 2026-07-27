@@ -1,0 +1,64 @@
+name: build-fork
+
+# Builds the headless mGBA fork (vendor/mgba, branch pokemon-professor-fork)
+# into mGBA.exe and publishes it as a GitHub Release asset named "fork-build",
+# so `npm run fork:download` can fetch a prebuilt binary without a local toolchain.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "vendor/mgba/**"
+      - "scripts/build-fork.sh"
+      - ".github/workflows/build-fork.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout (with fork submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSYS2 (ucrt64) with mGBA build deps
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-libepoxy
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-qt5
+
+      - name: Build fork
+        run: bash scripts/build-fork.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mGBA-fork-exe
+          path: vendor/mgba/build/mGBA.exe
+
+      - name: Publish release asset (fork-build)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete fork-build --yes || true
+          gh release create fork-build \
+            --repo "${{ github.repository }}" \
+            --title "Headless mGBA fork (prebuilt)" \
+            --notes "Automated build of the Pokemon Professor headless mGBA fork (mGBA.exe)." \
+            vendor/mgba/build/mGBA.exe#mGBA.exe
