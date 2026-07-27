@@ -1,0 +1,4 @@
+[submodule "vendor/mgba"]
+	path = vendor/mgba
+	url = ./vendor/mgba
+	branch = pokemon-professor-fork
