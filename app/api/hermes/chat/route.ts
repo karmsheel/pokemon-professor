@@ -50,6 +50,7 @@ export async function GET(request: Request) {
   try {
     const res = await fetch(`${base}/health`, {
       method: "GET",
+      headers: authHeaders(config.apiKey),
       cache: "no-store",
       signal: AbortSignal.timeout(3000),
     });

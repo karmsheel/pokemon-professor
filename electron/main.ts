@@ -284,6 +284,19 @@ async function bootstrap() {
           `ROM not found: ${romPath}. Load a FireRed .gba again.`
         );
       }
+      // Agent-first Start game: never silently fall back to mock unless opted in.
+      if ((process.env.PP_EMULATOR || "").toLowerCase().trim() !== "mock") {
+        if (resolveForkExe(userData) == null && !isMgbaPresent(userData)) {
+          throw new Error(
+            "No emulator available. Build/install the headless mGBA fork (vendor/mgba/build) or Download mGBA, then try Start game again."
+          );
+        }
+        // Auto-choice may have been mock at boot; upgrade before start/attach.
+        if (backend.kind !== "mgba") {
+          setBackend(createBackend("mgba", userData));
+          emulatorChoice = "mgba";
+        }
+      }
       const run = store.create({ rom_path: romPath });
       currentRunId = run.id;
       const connect = await startOrAttachBackend(romPath);
@@ -454,9 +467,17 @@ async function bootstrap() {
     return { ok: true };
   });
 
-  ipcMain.handle("studio:getSettings", () =>
-    loadStudioSettings(app.getPath("userData"))
-  );
+  ipcMain.handle("studio:getSettings", () => {
+    const userData = app.getPath("userData");
+    const settings = loadStudioSettings(userData);
+    // Drop stale lastRomPath if the file was moved/deleted since last session.
+    if (settings.lastRomPath && !fs.existsSync(settings.lastRomPath)) {
+      const cleaned = { ...settings, lastRomPath: null };
+      saveStudioSettings(userData, cleaned);
+      return cleaned;
+    }
+    return settings;
+  });
 
   ipcMain.handle(
     "studio:setHermesSettings",

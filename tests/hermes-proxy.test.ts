@@ -84,6 +84,30 @@ describe("Hermes chat proxy routes", () => {
     expect(body.hint).toMatch(/hermes gateway/i);
   });
 
+  it("GET forwards Authorization when apiKey is set", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    pushEnv({
+      HERMES_BASE_URL: "http://127.0.0.1:8642",
+      HERMES_API_KEY: "test-key",
+    });
+
+    const res = await GET(new Request("http://localhost/api/hermes/chat"));
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer test-key");
+    const calledUrl = String(fetchMock.mock.calls[0][0]);
+    expect(calledUrl).toBe("http://127.0.0.1:8642/health");
+  });
+
   it("POST returns 503 hermes_unavailable when gateway is down", async () => {
     pushEnv({ HERMES_BASE_URL: "http://127.0.0.1:59999" });
     const req = new Request("http://localhost/api/hermes/chat", {
