@@ -26,6 +26,13 @@ declare global {
         id: string;
         connect?: "attach" | "spawn" | "mock";
       }>;
+      /** Create run, start/attach backend, set agent mode; ROM from arg or lastRomPath. */
+      startGame: (romPath?: string | null) => Promise<{
+        id: string;
+        rom_path: string;
+        connect: "attach" | "spawn" | "mock";
+        mode: "agent";
+      }>;
       /** Attach to running mGBA + Lua bridge (no second emulator window). */
       attachBridge: (romPath?: string | null) => Promise<{
         id: string;

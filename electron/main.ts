@@ -259,6 +259,43 @@ async function bootstrap() {
   });
 
   /**
+   * Start game from chat: create run, start/attach backend, set agent mode.
+   * ROM from arg or lastRomPath settings.
+   */
+  ipcMain.handle(
+    "studio:startGame",
+    async (_e, romPathArg?: string | null) => {
+      const userData = app.getPath("userData");
+      const settings = loadStudioSettings(userData);
+      const romPath =
+        (romPathArg && romPathArg.trim()) || settings.lastRomPath;
+      if (!romPath) {
+        throw new Error("No ROM selected. Load a FireRed .gba first.");
+      }
+      if (!fs.existsSync(romPath)) {
+        throw new Error(
+          `ROM not found: ${romPath}. Load a FireRed .gba again.`
+        );
+      }
+      const run = store.create({ rom_path: romPath });
+      currentRunId = run.id;
+      const connect = await startOrAttachBackend(romPath);
+      if (backend.isRomLoaded()) capture.start();
+      mode.set("agent");
+      saveStudioSettings(userData, { ...settings, lastRomPath: romPath });
+      store.appendEvent(run.id, {
+        type: "run_started",
+        detail: {
+          emulator: backend.kind,
+          connect,
+          source: "start_game",
+        },
+      });
+      return { ...run, rom_path: romPath, connect, mode: "agent" as const };
+    }
+  );
+
+  /**
    * Attach to an already-running mGBA + bridge without spawning.
    * Creates a run if needed using the given romPath (bookkeeping only).
    */

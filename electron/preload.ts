@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld("studio", {
       id: string;
       connect?: "attach" | "spawn" | "mock";
     }>,
+  startGame: (romPath?: string | null) =>
+    ipcRenderer.invoke("studio:startGame", romPath) as Promise<{
+      id: string;
+      rom_path: string;
+      connect: "attach" | "spawn" | "mock";
+      mode: "agent";
+    }>,
   attachBridge: (romPath?: string | null) =>
     ipcRenderer.invoke("studio:attachBridge", romPath) as Promise<{
       id: string;

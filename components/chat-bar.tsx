@@ -219,15 +219,72 @@ export function ChatBar({
     }
   }, [busy, sending, onRomLoaded, pushSystem]);
 
+  /** POST chat history to Hermes; returns assistant text or throws / sets error. */
+  const postToHermes = useCallback(
+    async (
+      apiMessages: Array<{ role: string; content: string }>
+    ): Promise<string | null> => {
+      const res = await fetch("/api/hermes/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: apiMessages,
+          model: hermesSettings.model,
+          hermes: hermesSettings,
+        }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        content?: string;
+        error?: string;
+        hint?: string;
+        details?: string;
+      };
+
+      if (!res.ok) {
+        if (res.status === 503 || data.error === "hermes_unavailable") {
+          setConnected(false);
+          setStatusNote(data.hint || "Run hermes gateway");
+          setError(
+            data.hint
+              ? `Hermes unavailable — ${data.hint}`
+              : "Hermes unavailable — run `hermes gateway`"
+          );
+          return null;
+        }
+        if (data.error === "hermes_auth_failed") {
+          setError(
+            data.hint ||
+              "Hermes auth failed — set HERMES_API_KEY to match API_SERVER_KEY"
+          );
+          return null;
+        }
+        setError(
+          data.error
+            ? data.details
+              ? `${data.error}: ${data.details}`
+              : data.error
+            : `Chat failed (${res.status})`
+        );
+        return null;
+      }
+
+      setEverConnected(true);
+      setConnected(true);
+      setStatusNote("Hermes connected");
+      return (data.content || "").trim() || "(empty reply)";
+    },
+    [hermesSettings]
+  );
+
   const startGame = useCallback(async () => {
     if (busy || sending) return;
-    if (!window.studio) {
-      setError("Open the desktop app to start the game");
-      return;
-    }
-    const path = romPath;
-    if (!path) {
-      setError("No ROM selected. Use Load FireRed ROM… first.");
+    if (!window.studio?.startGame) {
+      setError(
+        window.studio
+          ? "Start game requires a desktop app rebuild"
+          : "Open the desktop app to start the game"
+      );
       return;
     }
 
@@ -235,51 +292,43 @@ export function ChatBar({
     setSending(true);
     setError(null);
     try {
-      // Prefer studio.startGame when Task 7 lands; interim = createRun + agent mode.
-      const studioAny = window.studio as Window["studio"] & {
-        startGame?: (romPath?: string | null) => Promise<{
-          id: string;
-          rom_path: string;
-          connect?: "attach" | "spawn" | "mock";
-          mode?: "agent";
-        }>;
+      // IPC resolves rom from arg or lastRomPath; validates file exists.
+      const result = await window.studio.startGame(romPath);
+      onRunStarted({ id: result.id }, result.rom_path);
+
+      const kickoff = gameStartedKickoffMessage();
+      const systemNote = `Run ${result.id.slice(0, 8)}… · ${result.connect} · mode agent`;
+      const userMsg: UiMessage = {
+        id: newId(),
+        role: "user",
+        content: kickoff,
       };
 
-      let runIdResult: string;
-      let romResult: string;
-      let connect: string | undefined;
+      setMessages((prev) => [
+        ...prev,
+        { id: newId(), role: "system", content: systemNote },
+        userMsg,
+      ]);
 
-      if (typeof studioAny?.startGame === "function") {
-        const result = await studioAny.startGame(path);
-        runIdResult = result.id;
-        romResult = result.rom_path;
-        connect = result.connect;
-      } else {
-        const run = await window.studio.createRun(path);
-        runIdResult = run.id;
-        romResult = path;
-        connect = run.connect;
-        if (window.studio.setMode) {
-          await window.studio.setMode("agent");
-        }
-        if (window.studio.setLastRomPath) {
-          await window.studio.setLastRomPath(path);
-        }
+      // Immediately POST kickoff so Hermes begins agent play.
+      const apiMessages = [...messages, userMsg]
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const reply = await postToHermes(apiMessages);
+      if (reply) {
+        setMessages((prev) => [
+          ...prev,
+          { id: newId(), role: "assistant", content: reply },
+        ]);
       }
-
-      onRunStarted({ id: runIdResult }, romResult);
-      const how = connect ?? "emulator";
-      pushSystem(
-        `Run ${runIdResult.slice(0, 8)}… · ${how} · mode agent`
-      );
-      pushSystem(gameStartedKickoffMessage());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Start game failed");
     } finally {
       setBusy(false);
       setSending(false);
     }
-  }, [busy, sending, romPath, onRunStarted, pushSystem]);
+  }, [busy, sending, romPath, messages, onRunStarted, postToHermes]);
 
   const send = useCallback(
     async (text: string) => {
@@ -311,66 +360,20 @@ export function ChatBar({
       setError(null);
 
       try {
-        const res = await fetch("/api/hermes/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: apiMessages,
-            model: hermesSettings.model,
-            hermes: hermesSettings,
-          }),
-        });
-
-        const data = (await res.json().catch(() => ({}))) as {
-          content?: string;
-          error?: string;
-          hint?: string;
-          details?: string;
-        };
-
-        if (!res.ok) {
-          if (res.status === 503 || data.error === "hermes_unavailable") {
-            setConnected(false);
-            setStatusNote(data.hint || "Run hermes gateway");
-            setError(
-              data.hint
-                ? `Hermes unavailable — ${data.hint}`
-                : "Hermes unavailable — run `hermes gateway`"
-            );
-            return;
-          }
-          if (data.error === "hermes_auth_failed") {
-            setError(
-              data.hint ||
-                "Hermes auth failed — set HERMES_API_KEY to match API_SERVER_KEY"
-            );
-            return;
-          }
-          setError(
-            data.error
-              ? data.details
-                ? `${data.error}: ${data.details}`
-                : data.error
-              : `Chat failed (${res.status})`
-          );
-          return;
+        const reply = await postToHermes(apiMessages);
+        if (reply) {
+          setMessages((prev) => [
+            ...prev,
+            { id: newId(), role: "assistant", content: reply },
+          ]);
         }
-
-        const reply = (data.content || "").trim() || "(empty reply)";
-        setMessages((prev) => [
-          ...prev,
-          { id: newId(), role: "assistant", content: reply },
-        ]);
-        setEverConnected(true);
-        setConnected(true);
-        setStatusNote("Hermes connected");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Chat request failed");
       } finally {
         setSending(false);
       }
     },
-    [messages, sending, busy, hermesSettings, startGame]
+    [messages, sending, busy, startGame, postToHermes]
   );
 
   const retryProbe = useCallback(async () => {
