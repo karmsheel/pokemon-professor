@@ -2,21 +2,80 @@
 
 import { useEffect, useState } from "react";
 import { ChatBar } from "@/components/chat-bar";
+import { HermesConnectGate } from "@/components/hermes-connect-gate";
 import { LiveView } from "@/components/live-view";
 import { OverrideControls } from "@/components/override-controls";
 import { RunRail } from "@/components/run-rail";
 import { fetchHealth } from "@/lib/control-client";
+import {
+  DEFAULT_HERMES_SETTINGS,
+  type HermesSettings,
+} from "@/lib/hermes-settings";
 
 type ControlMode = "agent" | "nudge" | "drive";
 
 export default function StudioPage() {
+  const [hermesReady, setHermesReady] = useState(false);
+  const [hermesSettings, setHermesSettings] = useState<HermesSettings>(
+    DEFAULT_HERMES_SETTINGS
+  );
+  /** False until mount bootstrap finishes (settings load + optional probe). */
+  const [hermesBootstrapped, setHermesBootstrapped] = useState(false);
+
   const [controlUrl, setControlUrl] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [romPath, setRomPath] = useState<string | null>(null);
   const [mode, setMode] = useState<ControlMode>("agent");
   const [healthNote, setHealthNote] = useState<string>("connecting…");
 
+  // Load stored Hermes settings + optional auto-probe. Fail → stay on gate.
   useEffect(() => {
+    let cancelled = false;
+
+    const bootHermes = async () => {
+      let settings: HermesSettings = DEFAULT_HERMES_SETTINGS;
+
+      if (window.studio?.getSettings) {
+        try {
+          const stored = await window.studio.getSettings();
+          if (stored?.hermes) {
+            settings = {
+              baseUrl: stored.hermes.baseUrl,
+              apiKey: stored.hermes.apiKey,
+              model: stored.hermes.model,
+            };
+          }
+        } catch {
+          /* keep defaults */
+        }
+      }
+
+      if (cancelled) return;
+      setHermesSettings(settings);
+
+      // Auto-probe once when studio IPC is available; never auto-enter on failure.
+      if (window.studio?.probeHermes) {
+        try {
+          const r = await window.studio.probeHermes(settings);
+          if (!cancelled && r.ok) {
+            setHermesReady(true);
+          }
+        } catch {
+          /* stay on gate */
+        }
+      }
+
+      if (!cancelled) setHermesBootstrapped(true);
+    };
+
+    void bootHermes();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hermesReady) return;
     let cancelled = false;
 
     const boot = async () => {
@@ -44,10 +103,10 @@ export default function StudioPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hermesReady]);
 
   useEffect(() => {
-    if (!controlUrl) return;
+    if (!hermesReady || !controlUrl) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -74,7 +133,31 @@ export default function StudioPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [controlUrl]);
+  }, [hermesReady, controlUrl]);
+
+  // Match SSR + first client paint: hold until bootstrap so gate gets stored settings.
+  if (!hermesBootstrapped) {
+    return (
+      <div className="hermes-gate" data-testid="hermes-bootstrap">
+        <div className="hermes-gate-card panel">
+          <p className="muted">Loading Hermes settings…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hermesReady) {
+    return (
+      <HermesConnectGate
+        key={`${hermesSettings.baseUrl}|${hermesSettings.model}`}
+        initial={hermesSettings}
+        onConnected={(s) => {
+          setHermesSettings(s);
+          setHermesReady(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="studio-root">
@@ -99,6 +182,7 @@ export default function StudioPage() {
             />
           </div>
         </div>
+        {/* hermesSettings reserved for Task 6 ChatBar proxy overrides */}
         <ChatBar mode={mode} variant="sidebar" />
       </div>
       <footer className="studio-footer">

@@ -593,3 +593,48 @@ select:focus {
   color: var(--muted);
   word-break: break-all;
 }
+
+/* Hermes hard connect gate — full viewport until gateway is reachable */
+.hermes-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  width: 100%;
+  padding: 1.25rem;
+  background: var(--bg);
+}
+
+.hermes-gate-card {
+  width: 100%;
+  max-width: 28rem;
+  padding: 1.35rem 1.4rem 1.25rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.hermes-gate-card h1 {
+  margin: 0 0 0.45rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.hermes-gate-card > .muted {
+  margin: 0 0 1rem;
+  line-height: 1.4;
+}
+
+.hermes-gate-fields {
+  margin-bottom: 0.85rem;
+}
+
+.hermes-gate-card .error-text {
+  margin: 0 0 0.85rem;
+}
+
+.hermes-gate-actions {
+  margin-top: 0.15rem;
+}
+
+.hermes-gate-actions > button {
+  flex: 1 1 auto;
+}
