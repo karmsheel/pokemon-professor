@@ -66,7 +66,7 @@ function createBackend(choice: "mock" | "mgba", userData: string): EmulatorBacke
     }
     // Prefer the Pokemon Professor headless fork when present: it auto-starts
     // the control bridge with no window and no manual Lua load step.
-    const forkExe = resolveForkExe();
+    const forkExe = resolveForkExe(userData);
     if (forkExe) {
       return new MgbaBackend({
         exePath: forkExe,

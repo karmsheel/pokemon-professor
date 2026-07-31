@@ -44,22 +44,46 @@ export function resolveBridgeScript(fromDir?: string): string {
 }
 
 /**
- * Resolve the Pokemon Professor headless fork executable.
- * Priority: PP_MGBA_FORK_EXE env > vendored build dir > dist-electron build dir.
- * Returns null if no fork binary is present (caller falls back to shipped mGBA).
+ * Prepend MSYS2 ucrt64 bin to PATH on Windows when present so the headless
+ * fork (dynamically linked against that runtime) can load its DLLs.
  */
-export function resolveForkExe(): string | null {
+export function pathWithUcrt64(envPath: string | undefined): string {
+  const bin = "C:\\msys64\\ucrt64\\bin";
+  if (process.platform === "win32" && fs.existsSync(bin)) {
+    return `${bin}${path.delimiter}${envPath ?? ""}`;
+  }
+  return envPath ?? "";
+}
+
+/**
+ * Resolve the Pokemon Professor headless fork executable.
+ * Priority:
+ *   1. PP_MGBA_FORK_EXE env
+ *   2. userData/mgba-fork/mGBA.exe (packaged / downloaded install)
+ *   3. vendored build dir (dev) / dist-electron build dir
+ * Returns null if no fork binary is present (caller falls back to stock mGBA).
+ */
+export function resolveForkExe(userData?: string): string | null {
   if (process.env.PP_MGBA_FORK_EXE && fs.existsSync(process.env.PP_MGBA_FORK_EXE)) {
     return process.env.PP_MGBA_FORK_EXE;
   }
+  const candidates: string[] = [];
+  if (userData) {
+    candidates.push(path.join(userData, "mgba-fork", "mGBA.exe"));
+  }
   // __dirname is dist-electron/electron/emulator (or electron/emulator in source) —
   // need three levels up from dist layout to reach repo root vendor/.
-  const candidates = [
+  // Prefer mGBA.exe (actual build product); keep mgba.exe for case-sensitive FS.
+  candidates.push(
+    path.join(process.cwd(), "vendor", "mgba", "build", "mGBA.exe"),
     path.join(process.cwd(), "vendor", "mgba", "build", "mgba.exe"),
+    path.join(__dirname, "..", "..", "..", "vendor", "mgba", "build", "mGBA.exe"),
     path.join(__dirname, "..", "..", "..", "vendor", "mgba", "build", "mgba.exe"),
+    path.join(__dirname, "..", "..", "vendor", "mgba", "build", "mGBA.exe"),
     path.join(__dirname, "..", "..", "vendor", "mgba", "build", "mgba.exe"),
+    path.join(process.cwd(), "dist-electron", "vendor", "mgba", "build", "mGBA.exe"),
     path.join(process.cwd(), "dist-electron", "vendor", "mgba", "build", "mgba.exe"),
-  ];
+  );
   for (const c of candidates) {
     if (fs.existsSync(c)) return path.resolve(c);
   }
@@ -85,6 +109,7 @@ export async function spawnMgba(opts: SpawnMgbaOpts): Promise<MgbaProcess> {
   }
   if (headless) {
     // Fork: bridge auto-starts, no Lua script needed.
+    // Prepend ucrt64 so MSYS2-linked fork DLLs resolve without a special shell.
     const args = ["--agent-headless", romPath, "--agent-bridge=" + bridgePort];
     const child = spawn(exePath, args, {
       detached: false,
@@ -92,6 +117,7 @@ export async function spawnMgba(opts: SpawnMgbaOpts): Promise<MgbaProcess> {
       stdio: ["ignore", "ignore", "pipe"],
       env: {
         ...process.env,
+        PATH: pathWithUcrt64(process.env.PATH),
         PP_MGBA_BRIDGE_PORT: String(bridgePort),
       },
     });
