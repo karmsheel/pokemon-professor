@@ -1,10 +1,10 @@
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { createControlServer } = require("../dist-electron/control-api/server");
-const { ModeMachine } = require("../dist-electron/control-api/mode-machine");
-const { MockBackend } = require("../dist-electron/emulator/mock-backend");
-const { RunStore } = require("../dist-electron/runs/store");
+const { createControlServer } = require("../dist-electron/electron/control-api/server");
+const { ModeMachine } = require("../dist-electron/electron/control-api/mode-machine");
+const { MockBackend } = require("../dist-electron/electron/emulator/mock-backend");
+const { RunStore } = require("../dist-electron/electron/runs/store");
 
 async function json(url, init) {
   const res = await fetch(url, init);

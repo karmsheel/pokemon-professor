@@ -52,8 +52,11 @@ export function resolveForkExe(): string | null {
   if (process.env.PP_MGBA_FORK_EXE && fs.existsSync(process.env.PP_MGBA_FORK_EXE)) {
     return process.env.PP_MGBA_FORK_EXE;
   }
+  // __dirname is dist-electron/electron/emulator (or electron/emulator in source) —
+  // need three levels up from dist layout to reach repo root vendor/.
   const candidates = [
     path.join(process.cwd(), "vendor", "mgba", "build", "mgba.exe"),
+    path.join(__dirname, "..", "..", "..", "vendor", "mgba", "build", "mgba.exe"),
     path.join(__dirname, "..", "..", "vendor", "mgba", "build", "mgba.exe"),
     path.join(process.cwd(), "dist-electron", "vendor", "mgba", "build", "mgba.exe"),
   ];

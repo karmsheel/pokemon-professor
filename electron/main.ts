@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import * as fs from "fs";
 import * as path from "path";
 import { createControlServer } from "./control-api/server";
 import { ModeMachine } from "./control-api/mode-machine";
@@ -498,7 +499,14 @@ async function bootstrap() {
   if (process.env.PP_DEV_URL || !app.isPackaged) {
     await mainWindow.loadURL(devUrl);
   } else {
-    await mainWindow.loadFile(path.join(__dirname, "../out/index.html"));
+    // __dirname is dist-electron/electron → repo out/ is two levels up
+    const indexCandidates = [
+      path.join(__dirname, "..", "..", "out", "index.html"),
+      path.join(process.cwd(), "out", "index.html"),
+    ];
+    const indexHtml =
+      indexCandidates.find((p) => fs.existsSync(p)) ?? indexCandidates[0];
+    await mainWindow.loadFile(indexHtml);
   }
 }
 

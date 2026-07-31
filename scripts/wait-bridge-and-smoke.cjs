@@ -6,7 +6,7 @@
  */
 const net = require("net");
 const path = require("path");
-const { MgbaBackend } = require("../dist-electron/emulator/mgba-backend");
+const { MgbaBackend } = require("../dist-electron/electron/emulator/mgba-backend");
 
 const timeoutSec = Number(process.argv[2] || 300);
 const port = Number(process.env.PP_MGBA_BRIDGE_PORT || 7947);
