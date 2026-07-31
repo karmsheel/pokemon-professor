@@ -50,8 +50,9 @@ function resolveEmulatorChoice(userData: string): "mock" | "mgba" {
   const env = (process.env.PP_EMULATOR || "").toLowerCase().trim();
   if (env === "mock") return "mock";
   if (env === "mgba") return "mgba";
-  // Auto: prefer mGBA when binary is already present
-  return isMgbaPresent(userData) ? "mgba" : "mock";
+  // Auto: prefer mGBA when stock binary or headless fork is present
+  if (isMgbaPresent(userData) || resolveForkExe(userData) != null) return "mgba";
+  return "mock";
 }
 
 function createBackend(choice: "mock" | "mgba", userData: string): EmulatorBackend {
@@ -207,24 +208,30 @@ async function bootstrap() {
   async function ensureBackendReadyForRom() {
     if (emulatorChoice === "mgba" || backend.kind === "mgba" || (process.env.PP_EMULATOR || "").toLowerCase() === "mgba") {
       const userData = app.getPath("userData");
-      // Prefer mGBA when attaching to a live bridge even if we started on mock
-      try {
-        ensureMgbaBinary(userData);
-      } catch (err) {
-        // Allow attach without local binary if bridge is already up
-        const probe = new MgbaBackend({
-          exePath: "mGBA.exe",
-          scriptPath: resolveBridgeScript(),
-        });
-        if (!(await probe.isBridgeUp(600))) {
-          if (err instanceof MgbaMissingError) {
-            throw new Error(
-              "mGBA is not installed. Use “Download mGBA” in the Run rail, or set PP_EMULATOR=mock."
-            );
+      // Prefer mGBA when attaching to a live bridge even if we started on mock.
+      // Headless fork is sufficient even when stock ensureMgbaBinary fails.
+      const forkExe = resolveForkExe(userData);
+      if (!forkExe) {
+        try {
+          ensureMgbaBinary(userData);
+        } catch (err) {
+          // Allow attach without local binary if bridge is already up
+          const probe = new MgbaBackend({
+            exePath: "mGBA.exe",
+            scriptPath: resolveBridgeScript(),
+          });
+          if (!(await probe.isBridgeUp(600))) {
+            if (err instanceof MgbaMissingError) {
+              throw new Error(
+                "mGBA is not installed. Use “Download mGBA” in the Run rail, or set PP_EMULATOR=mock."
+              );
+            }
+            throw err;
           }
-          throw err;
         }
       }
+      // Stock path (no fork): UI may later surface a system message that the
+      // Lua bridge must be loaded manually; ChatBar wiring deferred.
       if (backend.kind !== "mgba") {
         // Switch mock → mgba without killing external emulator
         setBackend(createBackend("mgba", userData));
