@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import {
   hermesBaseUrl,
-  hermesConfig,
   isHermesUnavailable,
+  resolveHermesConfig,
   type ChatMessage,
 } from "@/lib/hermes";
+import type { HermesSettings } from "@/lib/hermes-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ type ChatBody = {
   system?: string;
   stream?: boolean;
   temperature?: number;
+  hermes?: Partial<HermesSettings>;
 };
 
 function unavailableResponse() {
@@ -35,8 +37,14 @@ function authHeaders(apiKey: string): HeadersInit {
 }
 
 /** Health probe for the chat-bar connection badge. */
-export async function GET() {
-  const config = hermesConfig();
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const override = {
+    baseUrl: url.searchParams.get("baseUrl") ?? undefined,
+    apiKey: url.searchParams.get("apiKey") ?? undefined,
+    model: url.searchParams.get("model") ?? undefined,
+  };
+  const config = resolveHermesConfig(override);
   const base = hermesBaseUrl(config);
 
   try {
@@ -100,7 +108,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const config = hermesConfig();
+  const config = resolveHermesConfig(body.hermes);
   const base = hermesBaseUrl(config);
   const url = `${base}/v1/chat/completions`;
 

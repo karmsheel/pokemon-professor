@@ -1,3 +1,8 @@
+import {
+  normalizeHermesSettings,
+  type HermesSettings,
+} from "./hermes-settings";
+
 export type HermesConfig = {
   baseUrl: string;
   apiKey: string;
@@ -15,6 +20,18 @@ export function hermesConfig(): HermesConfig {
     apiKey: process.env.HERMES_API_KEY || "",
     model: process.env.HERMES_MODEL || "hermes-agent",
   };
+}
+
+/** Merge optional per-request settings over env defaults (normalized). */
+export function resolveHermesConfig(
+  override?: Partial<HermesSettings> | null
+): HermesConfig {
+  const env = hermesConfig();
+  return normalizeHermesSettings({
+    baseUrl: override?.baseUrl ?? env.baseUrl,
+    apiKey: override?.apiKey ?? env.apiKey,
+    model: override?.model ?? env.model,
+  });
 }
 
 export function hermesBaseUrl(config: HermesConfig = hermesConfig()): string {

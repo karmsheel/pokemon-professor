@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isHermesUnavailable, hermesConfig } from "../lib/hermes";
 import { GET, POST } from "../app/api/hermes/chat/route";
 
@@ -24,6 +24,8 @@ afterEach(() => {
     else process.env[k] = v;
     delete savedEnv[k];
   }
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("hermesConfig", () => {
@@ -37,6 +39,14 @@ describe("hermesConfig", () => {
     expect(cfg.baseUrl).toBe("http://127.0.0.1:8642");
     expect(cfg.apiKey).toBe("");
     expect(cfg.model).toBe("hermes-agent");
+  });
+});
+
+describe("hermes config override helper", () => {
+  it("resolveHermesConfig merges override over defaults", async () => {
+    const { resolveHermesConfig } = await import("../lib/hermes");
+    const c = resolveHermesConfig({ baseUrl: "http://127.0.0.1:9999/" });
+    expect(c.baseUrl).toBe("http://127.0.0.1:9999");
   });
 });
 
@@ -67,7 +77,7 @@ describe("isHermesUnavailable", () => {
 describe("Hermes chat proxy routes", () => {
   it("GET returns 503 hermes_unavailable when gateway is down", async () => {
     pushEnv({ HERMES_BASE_URL: "http://127.0.0.1:59999" });
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/hermes/chat"));
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.error).toBe("hermes_unavailable");
@@ -102,5 +112,35 @@ describe("Hermes chat proxy routes", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("messages_required");
+  });
+
+  it("POST with hermes.baseUrl override calls that host", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "ok from override" } }],
+          model: "override-model",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const req = new Request("http://localhost/api/hermes/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+        hermes: { baseUrl: "http://127.0.0.1:9999/" },
+      }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.content).toBe("ok from override");
+
+    expect(fetchMock).toHaveBeenCalled();
+    const calledUrl = String(fetchMock.mock.calls[0][0]);
+    expect(calledUrl).toBe("http://127.0.0.1:9999/v1/chat/completions");
   });
 });
