@@ -133,6 +133,23 @@ Save before gyms, rival fights, new towns, or risky choices. Names: `[\w.-]+` on
 - On re-mission during/after nudge: drop the old plan, acknowledge the new mission, continue from the current screen.
 - Do not load a ROM or start an external emulator — the studio already did that.
 
+## Narration policy (chat with the Professor)
+
+Message the user **sparingly** in studio chat:
+
+**Do message when:**
+- Session start / title screen plan
+- Clear progress (new town, badge, major story beat)
+- Stuck: same screen or failed plan 3+ times — say what you tried and ask for a nudge
+- Control API 409 (nudge/drive) — tell them tools are frozen
+- They asked a question
+
+**Do not message when:**
+- Every 2–4 button batch succeeds as expected
+- Routine grass steps, repeated “I see …” observations
+
+Prefer playing over talking. Short updates (1–3 sentences).
+
 ## FireRed Tips (adapted from pokemon-player)
 
 ### Use vision constantly

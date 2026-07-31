@@ -278,7 +278,7 @@ export function ChatBar({
   );
 
   const startGame = useCallback(async () => {
-    if (busy || sending) return;
+    if (busy || sending || !connected) return;
     if (!window.studio?.startGame) {
       setError(
         window.studio
@@ -328,12 +328,12 @@ export function ChatBar({
       setBusy(false);
       setSending(false);
     }
-  }, [busy, sending, romPath, messages, onRunStarted, postToHermes]);
+  }, [busy, sending, connected, romPath, messages, onRunStarted, postToHermes]);
 
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || sending || busy) return;
+      if (!trimmed || sending || busy || !connected) return;
 
       // Start-game phrases never go to Hermes as chat — route to start handler.
       if (isStartGameIntent(trimmed)) {
@@ -373,7 +373,7 @@ export function ChatBar({
         setSending(false);
       }
     },
-    [messages, sending, busy, startGame, postToHermes]
+    [messages, sending, busy, connected, startGame, postToHermes]
   );
 
   const retryProbe = useCallback(async () => {
@@ -452,7 +452,9 @@ export function ChatBar({
 
   const showReconnect = !connected && everConnected;
   const actionsLocked = busy || sending;
-  const canStart = hasStudio && Boolean(romPath) && !actionsLocked;
+  // Start game + send require Hermes; reconnect strip is the only recovery path (no Skip).
+  const canStart = hasStudio && Boolean(romPath) && connected && !actionsLocked;
+  const canSend = connected && !actionsLocked && Boolean(draft.trim());
   const canLoadRom = hasStudio && !actionsLocked;
 
   return (
@@ -548,7 +550,9 @@ export function ChatBar({
               ? "Open the desktop app to start the game"
               : !romPath
                 ? "Load a FireRed ROM first"
-                : "Start run in agent mode"
+                : !connected
+                  ? "Hermes disconnected — Retry above to start the game"
+                  : "Start run in agent mode"
           }
         >
           Start game
@@ -572,15 +576,20 @@ export function ChatBar({
           placeholder={
             connected
               ? "Message Hermes… (Enter to send, Shift+Enter for newline)"
-              : "Hermes offline — you can still type; send will show unavailable"
+              : "Hermes offline — reconnect above to send"
           }
           rows={variant === "sidebar" ? 4 : 2}
-          disabled={sending || busy}
+          disabled={sending || busy || !connected}
         />
         <button
           type="submit"
           className="primary"
-          disabled={sending || busy || !draft.trim()}
+          disabled={!canSend}
+          title={
+            !connected
+              ? "Hermes disconnected — Retry above to send"
+              : undefined
+          }
         >
           {sending ? "Sending…" : "Send"}
         </button>

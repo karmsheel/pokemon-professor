@@ -139,6 +139,7 @@ export function OverrideControls({
             className={mode === "nudge" ? "active" : undefined}
             disabled={disabled || busy}
             onClick={() => void setMode("nudge")}
+            title="Rescue: pause agent and re-prompt"
           >
             Nudge
           </button>
@@ -149,6 +150,7 @@ export function OverrideControls({
             className={mode === "drive" ? "active" : undefined}
             disabled={disabled || busy}
             onClick={() => void setMode("drive")}
+            title="Rescue: you control the game"
           >
             Drive
           </button>

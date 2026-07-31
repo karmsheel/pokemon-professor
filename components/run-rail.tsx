@@ -270,7 +270,9 @@ export function RunRail({
 
   return (
     <section className="panel">
-      <h2>Run rail</h2>
+      <h2>
+        Run rail <span className="muted">Advanced</span>
+      </h2>
       <div className="stack">
         <div className="status-pill">
           <span className="dot" />
