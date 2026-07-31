@@ -58,4 +58,12 @@ contextBridge.exposeInMainWorld("studio", {
   pickRom: () => ipcRenderer.invoke("studio:pickRom") as Promise<string | null>,
   driveInput: (buttons: string[]) =>
     ipcRenderer.invoke("studio:driveInput", buttons) as Promise<{ ok: true }>,
+  getSettings: () => ipcRenderer.invoke("studio:getSettings"),
+  setHermesSettings: (partial: object) =>
+    ipcRenderer.invoke("studio:setHermesSettings", partial),
+  setLastRomPath: (romPath: string | null) =>
+    ipcRenderer.invoke("studio:setLastRomPath", romPath),
+  openHermesDocs: () => ipcRenderer.invoke("studio:openHermesDocs"),
+  probeHermes: (override?: object) =>
+    ipcRenderer.invoke("studio:probeHermes", override),
 });

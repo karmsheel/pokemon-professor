@@ -54,6 +54,28 @@ declare global {
       pickRom: () => Promise<string | null>;
       /** Drive-mode only: bypasses agent POST /input gate. */
       driveInput: (buttons: string[]) => Promise<{ ok: true }>;
+      getSettings: () => Promise<{
+        hermes: { baseUrl: string; apiKey: string; model: string };
+        lastRomPath: string | null;
+      }>;
+      setHermesSettings: (partial: {
+        baseUrl?: string;
+        apiKey?: string;
+        model?: string;
+      }) => Promise<{
+        hermes: { baseUrl: string; apiKey: string; model: string };
+        lastRomPath: string | null;
+      }>;
+      setLastRomPath: (romPath: string | null) => Promise<{
+        hermes: { baseUrl: string; apiKey: string; model: string };
+        lastRomPath: string | null;
+      }>;
+      openHermesDocs: () => Promise<void>;
+      probeHermes: (override?: {
+        baseUrl?: string;
+        apiKey?: string;
+        model?: string;
+      }) => Promise<{ ok: boolean; error?: string; hint?: string }>;
     };
   }
 }

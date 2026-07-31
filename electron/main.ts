@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as path from "path";
 import { createControlServer } from "./control-api/server";
 import { ModeMachine } from "./control-api/mode-machine";
@@ -22,6 +22,16 @@ import {
   type ControlMode,
 } from "./control-api/types";
 import type { ControlContext } from "./control-api/context";
+import {
+  loadStudioSettings,
+  saveStudioSettings,
+} from "./settings-store";
+import {
+  HERMES_DOCS_URL,
+  isValidHermesBaseUrl,
+  normalizeHermesSettings,
+  type HermesSettings,
+} from "../lib/hermes-settings";
 
 let mainWindow: BrowserWindow | null = null;
 let controlUrl = "";
@@ -398,6 +408,81 @@ async function bootstrap() {
     await backend.press(buttons);
     return { ok: true };
   });
+
+  ipcMain.handle("studio:getSettings", () =>
+    loadStudioSettings(app.getPath("userData"))
+  );
+
+  ipcMain.handle(
+    "studio:setHermesSettings",
+    (_e, partial: Partial<HermesSettings>) => {
+      const userData = app.getPath("userData");
+      const cur = loadStudioSettings(userData);
+      const hermes = normalizeHermesSettings({ ...cur.hermes, ...partial });
+      if (!isValidHermesBaseUrl(hermes.baseUrl)) {
+        throw new Error("Invalid Hermes base URL (use http:// or https://)");
+      }
+      const next = { ...cur, hermes };
+      saveStudioSettings(userData, next);
+      return next;
+    }
+  );
+
+  ipcMain.handle("studio:setLastRomPath", (_e, romPath: string | null) => {
+    const userData = app.getPath("userData");
+    const cur = loadStudioSettings(userData);
+    const next = {
+      ...cur,
+      lastRomPath: romPath && romPath.trim() ? romPath : null,
+    };
+    saveStudioSettings(userData, next);
+    return next;
+  });
+
+  ipcMain.handle("studio:openHermesDocs", async () => {
+    await shell.openExternal(HERMES_DOCS_URL);
+  });
+
+  ipcMain.handle(
+    "studio:probeHermes",
+    async (_e, override?: Partial<HermesSettings>) => {
+      const cur = loadStudioSettings(app.getPath("userData"));
+      const hermes = normalizeHermesSettings({ ...cur.hermes, ...override });
+      if (!isValidHermesBaseUrl(hermes.baseUrl)) {
+        return {
+          ok: false,
+          error: "invalid_url",
+          hint: "Enter a valid http(s) Hermes URL",
+        };
+      }
+      try {
+        const res = await fetch(
+          `${hermes.baseUrl.replace(/\/$/, "")}/health`,
+          {
+            method: "GET",
+            signal: AbortSignal.timeout(3000),
+            headers: hermes.apiKey
+              ? { Authorization: `Bearer ${hermes.apiKey}` }
+              : undefined,
+          }
+        );
+        if (!res.ok) {
+          return {
+            ok: false,
+            error: "hermes_unavailable",
+            hint: "Hermes returned an error — is the gateway running?",
+          };
+        }
+        return { ok: true as const };
+      } catch {
+        return {
+          ok: false,
+          error: "hermes_unavailable",
+          hint: "Cannot reach Hermes — start the gateway, then Retry",
+        };
+      }
+    }
+  );
 
   mainWindow = new BrowserWindow({
     width: 1280,

@@ -4,11 +4,11 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "dist-electron",
-    "rootDir": "electron",
+    "rootDir": ".",
     "jsx": "react-jsx",
     "noEmit": false,
     "plugins": [],
     "lib": ["ES2022"]
   },
-  "include": ["electron/**/*"]
+  "include": ["electron/**/*", "lib/hermes-settings.ts"]
 }
