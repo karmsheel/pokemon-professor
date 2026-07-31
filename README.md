@@ -23,7 +23,16 @@ Optional env for Hermes:
 
 This project **does not ship, download, or host ROMs**. You must provide your own legally obtained FireRed dump. Do not commit ROM files. Skills and agents must not invent ROM paths or fetch dumps.
 
-## Quick start
+## Quick start (agent-first)
+
+1. Install and run local Hermes gateway (`hermes gateway` — see Hermes docs).
+2. `npm install`
+3. `npm run dev:web` and `npm run dev:electron`
+4. **Connect Hermes** in the gate (Retry / Open docs if offline).
+5. In chat: **Load FireRed ROM…** → **Start game**
+6. Watch Live view; coach in chat; Nudge/Drive only if the agent is stuck.
+
+Legal: provide your own FireRed `.gba`. The app never ships ROMs.
 
 ```bash
 npm install
@@ -33,14 +42,6 @@ npm test                 # Vitest unit/integration suite
 npm run typecheck
 npm run build:electron
 ```
-
-Typical Alpha flow:
-
-1. Start Hermes gateway locally.
-2. `npm run dev:web` and/or `npm run dev:electron`.
-3. In the studio: install/use mGBA (first-run download into user-data) **or** use the mock path for ROM-free UI/API checks.
-4. Pick your FireRed `.gba` → Start Run → assign a mission in chat / Run rail.
-5. Agent plays via Control API; use **Nudge** or **Drive** when stuck; save/load/resume as needed.
 
 ## Control API
 

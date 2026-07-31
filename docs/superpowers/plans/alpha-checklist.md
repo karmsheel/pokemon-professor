@@ -60,3 +60,20 @@ Skill source: `skills/pokemon-professor/SKILL.md` · Control API base: `http://1
 | **Pass** (item 1) | Pending engineer machine | Not complete until 2–10 Pass |
 
 Mark rows 2–10 **Pass** only after exercising them on the engineer machine with mock and/or legal FireRed + Hermes as appropriate.
+
+## Agent-first MVP checklist (Task 10)
+
+Manual script for the agent-first studio gate. Run with Hermes gateway up, `npm run dev:web` + `npm run dev:electron`.
+
+| # | Check | Pass? | Notes |
+|---|--------|-------|-------|
+| A1 | Gate blocks without Hermes | _manual_ | Offline gate; Retry / Open docs |
+| A2 | Open docs works | _manual_ | Docs link from gate |
+| A3 | Connect succeeds | _manual_ | Hermes online → studio unlocks |
+| A4 | Welcome + ROM CTA | _manual_ | Chat: Load FireRed ROM… |
+| A5 | Start game → frames + mode agent | _manual_ | Live view; mode agent |
+| A6 | Chat kickoff | _manual_ | Coach message / agent start |
+| A7 | Nudge → input 409 | _manual_ | Agent tools frozen while Nudge |
+| A8 | Drive → keys work → back to agent | _manual_ | Drive keys; Escape → agent |
+
+**Automated (2026-07-31 Task 10):** `npm test` — **14 files, 76 tests passed** (unit + e2e; e2e ran when fork available).
