@@ -28,12 +28,13 @@ export default function StudioPage() {
   const [mode, setMode] = useState<ControlMode>("agent");
   const [healthNote, setHealthNote] = useState<string>("connecting…");
 
-  // Load stored Hermes settings + optional auto-probe. Fail → stay on gate.
+  // Load stored Hermes settings + last ROM + optional auto-probe. Fail → stay on gate.
   useEffect(() => {
     let cancelled = false;
 
     const bootHermes = async () => {
       let settings: HermesSettings = DEFAULT_HERMES_SETTINGS;
+      let lastRom: string | null = null;
 
       if (window.studio?.getSettings) {
         try {
@@ -45,6 +46,9 @@ export default function StudioPage() {
               model: stored.hermes.model,
             };
           }
+          if (stored?.lastRomPath) {
+            lastRom = stored.lastRomPath;
+          }
         } catch {
           /* keep defaults */
         }
@@ -52,6 +56,7 @@ export default function StudioPage() {
 
       if (cancelled) return;
       setHermesSettings(settings);
+      if (lastRom) setRomPath(lastRom);
 
       // Auto-probe once when studio IPC is available; never auto-enter on failure.
       if (window.studio?.probeHermes) {
@@ -182,8 +187,18 @@ export default function StudioPage() {
             />
           </div>
         </div>
-        {/* hermesSettings reserved for Task 6 ChatBar proxy overrides */}
-        <ChatBar mode={mode} variant="sidebar" />
+        <ChatBar
+          mode={mode}
+          variant="sidebar"
+          hermesSettings={hermesSettings}
+          romPath={romPath}
+          runId={runId}
+          onRomLoaded={(path) => setRomPath(path)}
+          onRunStarted={(run, path) => {
+            setRunId(run.id);
+            setRomPath(path);
+          }}
+        />
       </div>
       <footer className="studio-footer">
         <OverrideControls mode={mode} onModeChange={setMode} />
