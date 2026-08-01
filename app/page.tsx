@@ -167,25 +167,24 @@ export default function StudioPage() {
   return (
     <div className="studio-root">
       <div className="studio-main">
-        <div className="studio-stage">
-          <div className="studio-center">
-            <div className="status-pill ok" style={{ alignSelf: "flex-start" }}>
-              <span className="dot" />
-              {healthNote}
-            </div>
-            <LiveView controlUrl={controlUrl} mode={mode} />
+        <aside className="studio-run-rail" aria-label="Run rail">
+          <RunRail
+            runId={runId}
+            romPath={romPath}
+            controlUrl={controlUrl}
+            onRunStarted={(run, path) => {
+              setRunId(run.id);
+              setRomPath(path);
+            }}
+          />
+        </aside>
+        <div className="studio-center">
+          <div className="status-pill ok" style={{ alignSelf: "flex-start" }}>
+            <span className="dot" />
+            {healthNote}
           </div>
-          <div className="studio-run-rail">
-            <RunRail
-              runId={runId}
-              romPath={romPath}
-              controlUrl={controlUrl}
-              onRunStarted={(run, path) => {
-                setRunId(run.id);
-                setRomPath(path);
-              }}
-            />
-          </div>
+          <LiveView controlUrl={controlUrl} mode={mode} />
+          <OverrideControls mode={mode} onModeChange={setMode} />
         </div>
         <ChatBar
           mode={mode}
@@ -200,9 +199,6 @@ export default function StudioPage() {
           }}
         />
       </div>
-      <footer className="studio-footer">
-        <OverrideControls mode={mode} onModeChange={setMode} />
-      </footer>
     </div>
   );
 }

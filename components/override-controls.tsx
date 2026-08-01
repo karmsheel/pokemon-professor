@@ -120,9 +120,9 @@ export function OverrideControls({
   }, [mode, setMode]);
 
   return (
-    <section className="panel">
-      <h2>Override</h2>
-      <div className="stack">
+    <section className="panel override-controls">
+      <div className="override-header">
+        <h2>Override</h2>
         <div
           className={modePillClass(mode)}
           data-testid="mode-badge"
@@ -132,63 +132,58 @@ export function OverrideControls({
           <span className="dot" />
           mode: {modeLabel(mode)}
         </div>
-
-        <div className="row">
-          <button
-            type="button"
-            className={mode === "nudge" ? "active" : undefined}
-            disabled={disabled || busy}
-            onClick={() => void setMode("nudge")}
-            title="Rescue: pause agent and re-prompt"
-          >
-            Nudge
-          </button>
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            className={mode === "drive" ? "active" : undefined}
-            disabled={disabled || busy}
-            onClick={() => void setMode("drive")}
-            title="Rescue: you control the game"
-          >
-            Drive
-          </button>
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            className={mode === "agent" ? "active primary" : "primary"}
-            disabled={disabled || busy}
-            data-testid="return-to-agent"
-            onClick={() => void setMode("agent")}
-          >
-            {mode === "drive" ? "Return to Agent" : "Resume Agent"}
-          </button>
-        </div>
-
-        {mode === "drive" ? (
-          <p className="muted">
-            Live view focused. Keys: arrows · Z=A · X=B · Enter=START · Shift=SELECT.
-            Escape or Return to Agent → agent. Chat focus is ignored for game keys.
-          </p>
-        ) : mode === "nudge" ? (
-          <p className="muted">
-            Nudge freezes agent tools (POST /input → 409). Chat still works for
-            coaching; Resume Agent to unfreeze.
-          </p>
-        ) : (
-          <p className="muted">
-            Agent mode: Hermes/skill may POST /input. Nudge pauses tools; Drive
-            enables local keys via IPC.
-          </p>
-        )}
-
-        {lastInput && mode === "drive" ? (
-          <p className="muted">last input: {lastInput}</p>
-        ) : null}
-        {error ? <p className="error-text">{error}</p> : null}
       </div>
+      <div className="row override-buttons">
+        <button
+          type="button"
+          className={mode === "nudge" ? "active" : undefined}
+          disabled={disabled || busy}
+          onClick={() => void setMode("nudge")}
+          title="Rescue: pause agent and re-prompt"
+        >
+          Nudge
+        </button>
+        <button
+          type="button"
+          className={mode === "drive" ? "active" : undefined}
+          disabled={disabled || busy}
+          onClick={() => void setMode("drive")}
+          title="Rescue: you control the game"
+        >
+          Drive
+        </button>
+        <button
+          type="button"
+          className={mode === "agent" ? "active primary" : "primary"}
+          disabled={disabled || busy}
+          data-testid="return-to-agent"
+          onClick={() => void setMode("agent")}
+        >
+          {mode === "drive" ? "Return to Agent" : "Resume Agent"}
+        </button>
+      </div>
+
+      {mode === "drive" ? (
+        <p className="muted">
+          Live view focused. Keys: arrows · Z=A · X=B · Enter=START · Shift=SELECT.
+          Escape or Return to Agent → agent. Chat focus is ignored for game keys.
+        </p>
+      ) : mode === "nudge" ? (
+        <p className="muted">
+          Nudge freezes agent tools (POST /input → 409). Chat still works for
+          coaching; Resume Agent to unfreeze.
+        </p>
+      ) : (
+        <p className="muted">
+          Agent mode: Hermes/skill may POST /input. Nudge pauses tools; Drive
+          enables local keys via IPC.
+        </p>
+      )}
+
+      {lastInput && mode === "drive" ? (
+        <p className="muted">last input: {lastInput}</p>
+      ) : null}
+      {error ? <p className="error-text">{error}</p> : null}
     </section>
   );
 }

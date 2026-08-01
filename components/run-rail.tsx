@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchSaves } from "@/lib/control-client";
+import {
+  CollapsibleSection,
+  CollapsibleSectionContent,
+  CollapsibleSectionHeader,
+} from "@/components/ui/collapsible-section";
 
 type RunSummary = {
   id: string;
@@ -62,7 +67,17 @@ export function RunRail({
   const [hasStudio, setHasStudio] = useState(false);
   const [emuInfo, setEmuInfo] = useState<EmuInfo | null>(null);
   const [pastRuns, setPastRuns] = useState<RunSummary[]>([]);
-  const [resumeId, setResumeId] = useState<string>("");
+  const [resumeId, setResumeId] = useState("");
+
+  // Default-open state: only Run and Savestate open by default
+  const [openSections, setOpenSections] = useState({
+    emulator: false,
+    rom: false,
+    run: true,
+    resume: false,
+    mission: false,
+    savestate: true,
+  });
 
   const refreshEmuInfo = async () => {
     if (!window.studio?.getEmulatorInfo) return;
@@ -144,10 +159,10 @@ export function RunRail({
   const pickRom = () =>
     withBusy(async () => {
       if (!window.studio) throw new Error("window.studio unavailable");
-      const path = await window.studio.pickRom();
-      if (path) {
-        setPickedRom(path);
-        setStatus(`ROM: ${path}`);
+      const p = await window.studio.pickRom();
+      if (p) {
+        setPickedRom(p);
+        setStatus(`ROM: ${p}`);
       }
     });
 
@@ -167,7 +182,7 @@ export function RunRail({
   const startRun = () =>
     withBusy(async () => {
       if (!window.studio) throw new Error("window.studio unavailable");
-      const path = pickedRom ?? "C:\\mock\\firered.gba";
+      const p = pickedRom ?? "C:\\mock\\firered.gba";
       if (emuInfo?.bridgeUp) {
         setStatus("Bridge online — attaching (no second mGBA)…");
       } else if (emuInfo?.backendKind === "mgba" || emuInfo?.choice === "mgba") {
@@ -175,9 +190,9 @@ export function RunRail({
           "Starting mGBA… After the window opens, load the bridge script: Tools → Scripting → Load script (see path below). Waiting up to 60s for TCP :7947."
         );
       }
-      const run = await window.studio.createRun(path);
-      onRunStarted(run, path);
-      setPickedRom(path);
+      const run = await window.studio.createRun(p);
+      onRunStarted(run, p);
+      setPickedRom(p);
       const how =
         run.connect === "attach"
           ? "attached to running mGBA"
@@ -268,201 +283,306 @@ export function RunRail({
       setStatus(`Loaded "${saveName.trim()}"`);
     });
 
+  const sectionDisabled = disabled || busy || !hasStudio;
+
   return (
     <section className="panel">
       <h2>
         Run rail <span className="muted">Advanced</span>
       </h2>
       <div className="stack">
-        <div className="status-pill">
-          <span className="dot" />
-          emulator: {emuInfo?.backendKind ?? "…"}
-          {emuInfo?.env ? ` (PP_EMULATOR=${emuInfo.env})` : ""}
-        </div>
-        <div className={`status-pill${emuInfo?.bridgeUp ? " ok" : ""}`}>
-          <span className="dot" />
-          bridge :{emuInfo?.bridgePort ?? 7947}:{" "}
-          {emuInfo?.bridgeUp ? "online — Start Run will attach" : "offline"}
-          {emuInfo?.romLoaded ? " · studio linked" : ""}
-        </div>
-
-        <div className="row">
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio}
-            onClick={() => void downloadMgba()}
+        {/* --- Emulator & Bridge --- */}
+        <CollapsibleSection
+          isExpanded={openSections.emulator}
+          onToggle={() => setOpenSections((p) => ({ ...p, emulator: !p.emulator }))}
+          label="Emulator &amp; Bridge"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.emulator}
+            onToggle={() =>
+              setOpenSections((p) => ({ ...p, emulator: !p.emulator }))
+            }
+            label="Emulator &amp; Bridge"
           >
-            {emuInfo?.mgbaPresent ? "mGBA ready" : "Download mGBA"}
-          </button>
-        </div>
-        {emuInfo?.mgbaPresent ? (
-          <p className="muted path-text">{emuInfo.mgbaPath}</p>
-        ) : (
-          <p className="muted">
-            First-run: download official mGBA 0.10.5 into app data (never ships ROMs).
-            Requires 7-Zip on PATH or in Program Files.
-          </p>
-        )}
-        {emuInfo?.scriptPath ? (
-          <p className="muted path-text" title={emuInfo.scriptPath}>
-            Bridge script: {emuInfo.scriptPath}
-          </p>
-        ) : null}
-
-        <div className="row">
-          <button type="button" disabled={disabled || busy || !hasStudio} onClick={() => void pickRom()}>
-            Pick ROM
-          </button>
-        </div>
-        {pickedRom ? <div className="path-text">{pickedRom}</div> : (
-          <p className="muted">No ROM selected (Start Run uses a mock path).</p>
-        )}
-
-        <div className="row">
-          <button
-            type="button"
-            className="primary"
-            disabled={disabled || busy || !hasStudio}
-            onClick={() => void startRun()}
-          >
-            Start Run
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio || !emuInfo?.bridgeUp}
-            onClick={() => void attachBridge()}
-            title="Link Studio to mGBA that already has the Lua bridge loaded"
-          >
-            Attach bridge
-          </button>
-        </div>
-        <p className="muted">
-          If mGBA is already playing and the bridge script is loaded,{" "}
-          <strong>Start Run</strong> or <strong>Attach bridge</strong> links
-          Studio without opening a second emulator. Then watch the center{" "}
-          <strong>Live view</strong> panel.
-        </p>
-
-        <div className="field">
-          <label htmlFor="resume-run">Resume Run</label>
-          <select
-            id="resume-run"
-            value={resumeId}
-            onChange={(e) => setResumeId(e.target.value)}
-            disabled={disabled || busy || !hasStudio || pastRuns.length === 0}
-          >
-            {pastRuns.length === 0 ? (
-              <option value="">No past runs</option>
+            <div className="status-pill">
+              <span className="dot" />
+              emulator: {emuInfo?.backendKind ?? "…"}
+              {emuInfo?.env ? ` (PP_EMULATOR=${emuInfo.env})` : ""}
+            </div>
+            <div className={`status-pill${emuInfo?.bridgeUp ? " ok" : ""}`}>
+              <span className="dot" />
+              bridge :{emuInfo?.bridgePort ?? 7947}:{" "}
+              {emuInfo?.bridgeUp ? "online — Start Run will attach" : "offline"}
+              {emuInfo?.romLoaded ? " · studio linked" : ""}
+            </div>
+          </CollapsibleSectionHeader>
+          <CollapsibleSectionContent isExpanded={openSections.emulator}>
+            <div className="row">
+              <button
+                type="button"
+                disabled={sectionDisabled}
+                onClick={() => void downloadMgba()}
+              >
+                {emuInfo?.mgbaPresent ? "mGBA ready" : "Download mGBA"}
+              </button>
+            </div>
+            {emuInfo?.mgbaPresent ? (
+              <p className="muted path-text">{emuInfo.mgbaPath}</p>
             ) : (
-              pastRuns.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {formatRunLabel(r)}
-                </option>
-              ))
+              <p className="muted">
+                First-run: download official mGBA 0.10.5 into app data (never
+                ships ROMs). Requires 7-Zip on PATH or in Program Files.
+              </p>
             )}
-          </select>
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio || !resumeId}
-            onClick={() => void resumeRun()}
-            data-testid="resume-run"
-          >
-            Resume Run
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio}
-            onClick={() => void refreshRuns()}
-            title="Refresh run list"
-          >
-            Refresh
-          </button>
-        </div>
-        <p className="muted">
-          Resume starts the backend with the run&apos;s ROM and loads the last
-          savestate if one exists (e.g. <code>pre_drive</code>).
-        </p>
+            {emuInfo?.scriptPath ? (
+              <p className="muted path-text" title={emuInfo.scriptPath}>
+                Bridge script: {emuInfo.scriptPath}
+              </p>
+            ) : null}
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
 
-        <div className="field">
-          <label htmlFor="mission">Mission</label>
-          <input
-            id="mission"
-            value={mission}
-            onChange={(e) => setMission(e.target.value)}
-            placeholder="e.g. leave Oak's lab"
-            disabled={disabled || busy}
+        {/* --- ROM --- */}
+        <CollapsibleSection
+          isExpanded={openSections.rom}
+          onToggle={() => setOpenSections((p) => ({ ...p, rom: !p.rom }))}
+          label="ROM"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.rom}
+            onToggle={() => setOpenSections((p) => ({ ...p, rom: !p.rom }))}
+            label="ROM"
           />
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio || !runId}
-            onClick={() => void startMission()}
-          >
-            Start Mission
-          </button>
-        </div>
+          <CollapsibleSectionContent isExpanded={openSections.rom}>
+            <div className="row">
+              <button
+                type="button"
+                disabled={sectionDisabled}
+                onClick={() => void pickRom()}
+              >
+                Pick ROM
+              </button>
+            </div>
+            {pickedRom ? (
+              <div className="path-text">{pickedRom}</div>
+            ) : (
+              <p className="muted">
+                No ROM selected (Start Run uses a mock path).
+              </p>
+            )}
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
 
-        <div className="field">
-          <label htmlFor="save-name">Savestate</label>
-          {saveList.length > 0 ? (
-            <select
-              id="save-list"
-              value={saveList.includes(saveName) ? saveName : ""}
-              onChange={(e) => {
-                if (e.target.value) setSaveName(e.target.value);
-              }}
-              disabled={disabled || busy}
-              aria-label="Known savestates"
-            >
-              <option value="">— pick existing —</option>
-              {saveList.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          <input
-            id="save-name"
-            value={saveName}
-            onChange={(e) => setSaveName(e.target.value)}
-            disabled={disabled || busy}
-            placeholder="e.g. pre_drive"
-            list="save-name-suggestions"
+        {/* --- Run --- */}
+        <CollapsibleSection
+          isExpanded={openSections.run}
+          onToggle={() => setOpenSections((p) => ({ ...p, run: !p.run }))}
+          label="Run"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.run}
+            onToggle={() => setOpenSections((p) => ({ ...p, run: !p.run }))}
+            label="Run"
           />
-          {saveList.length > 0 ? (
-            <datalist id="save-name-suggestions">
-              {saveList.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
-          ) : null}
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio || !runId}
-            onClick={() => void save()}
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy || !hasStudio || !runId}
-            onClick={() => void load()}
-          >
-            Load
-          </button>
-        </div>
-        {saveList.length > 0 ? (
-          <p className="muted">Known saves: {saveList.join(", ")}</p>
-        ) : runId ? (
-          <p className="muted">No savestates yet for this run.</p>
-        ) : null}
+          <CollapsibleSectionContent isExpanded={openSections.run}>
+            <div className="row">
+              <button
+                type="button"
+                className="primary"
+                disabled={sectionDisabled}
+                onClick={() => void startRun()}
+              >
+                Start Run
+              </button>
+              <button
+                type="button"
+                disabled={sectionDisabled || !emuInfo?.bridgeUp}
+                onClick={() => void attachBridge()}
+                title="Link Studio to mGBA that already has the Lua bridge loaded"
+              >
+                Attach bridge
+              </button>
+            </div>
+            <p className="muted">
+              If mGBA is already playing and the bridge script is loaded,{" "}
+              <strong>Start Run</strong> or <strong>Attach bridge</strong>{" "}
+              links Studio without opening a second emulator. Then watch the
+              center <strong>Live view</strong> panel.
+            </p>
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
 
+        {/* --- Resume Run --- */}
+        <CollapsibleSection
+          isExpanded={openSections.resume}
+          onToggle={() => setOpenSections((p) => ({ ...p, resume: !p.resume }))}
+          label="Resume Run"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.resume}
+            onToggle={() => setOpenSections((p) => ({ ...p, resume: !p.resume }))}
+            label="Resume Run"
+          />
+          <CollapsibleSectionContent isExpanded={openSections.resume}>
+            <div className="field">
+              <label htmlFor="resume-run">Resume Run</label>
+              <select
+                id="resume-run"
+                value={resumeId}
+                onChange={(e) => setResumeId(e.target.value)}
+                disabled={sectionDisabled || pastRuns.length === 0}
+              >
+                {pastRuns.length === 0 ? (
+                  <option value="">No past runs</option>
+                ) : (
+                  pastRuns.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {formatRunLabel(r)}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="row">
+              <button
+                type="button"
+                disabled={sectionDisabled || !resumeId}
+                onClick={() => void resumeRun()}
+                data-testid="resume-run"
+              >
+                Resume Run
+              </button>
+              <button
+                type="button"
+                disabled={sectionDisabled}
+                onClick={() => void refreshRuns()}
+                title="Refresh run list"
+              >
+                Refresh
+              </button>
+            </div>
+            <p className="muted">
+              Resume starts the backend with the run&apos;s ROM and loads the
+              last savestate if one exists (e.g. <code>pre_drive</code>).
+            </p>
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
+
+        {/* --- Mission --- */}
+        <CollapsibleSection
+          isExpanded={openSections.mission}
+          onToggle={() =>
+            setOpenSections((p) => ({ ...p, mission: !p.mission }))
+          }
+          label="Mission"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.mission}
+            onToggle={() =>
+              setOpenSections((p) => ({ ...p, mission: !p.mission }))
+            }
+            label="Mission"
+          />
+          <CollapsibleSectionContent isExpanded={openSections.mission}>
+            <div className="field">
+              <label htmlFor="mission">Mission</label>
+              <input
+                id="mission"
+                value={mission}
+                onChange={(e) => setMission(e.target.value)}
+                placeholder="e.g. leave Oak's lab"
+                disabled={disabled || busy}
+              />
+            </div>
+            <div className="row">
+              <button
+                type="button"
+                disabled={sectionDisabled || !runId}
+                onClick={() => void startMission()}
+              >
+                Start Mission
+              </button>
+            </div>
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
+
+        {/* --- Savestate --- */}
+        <CollapsibleSection
+          isExpanded={openSections.savestate}
+          onToggle={() =>
+            setOpenSections((p) => ({ ...p, savestate: !p.savestate }))
+          }
+          label="Savestate"
+        >
+          <CollapsibleSectionHeader
+            isExpanded={openSections.savestate}
+            onToggle={() =>
+              setOpenSections((p) => ({ ...p, savestate: !p.savestate }))
+            }
+            label="Savestate"
+          />
+          <CollapsibleSectionContent isExpanded={openSections.savestate}>
+            <div className="field">
+              <label htmlFor="save-name">Savestate</label>
+              {saveList.length > 0 ? (
+                <select
+                  id="save-list"
+                  value={saveList.includes(saveName) ? saveName : ""}
+                  onChange={(e) => {
+                    if (e.target.value) setSaveName(e.target.value);
+                  }}
+                  disabled={disabled || busy}
+                  aria-label="Known savestates"
+                >
+                  <option value="">— pick existing —</option>
+                  {saveList.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <input
+                id="save-name"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                disabled={disabled || busy}
+                placeholder="e.g. pre_drive"
+                list="save-name-suggestions"
+              />
+              {saveList.length > 0 ? (
+                <datalist id="save-name-suggestions">
+                  {saveList.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              ) : null}
+            </div>
+            <div className="row">
+              <button
+                type="button"
+                disabled={sectionDisabled || !runId}
+                onClick={() => void save()}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                disabled={sectionDisabled || !runId}
+                onClick={() => void load()}
+              >
+                Load
+              </button>
+            </div>
+            {saveList.length > 0 ? (
+              <p className="muted">Known saves: {saveList.join(", ")}</p>
+            ) : runId ? (
+              <p className="muted">No savestates yet for this run.</p>
+            ) : null}
+          </CollapsibleSectionContent>
+        </CollapsibleSection>
+
+        {/* --- Status & errors --- */}
         <div className="status-pill">
           <span className="dot" />
           run: {runId ?? "none"}
@@ -471,7 +591,8 @@ export function RunRail({
         {error ? <p className="error-text">{error}</p> : null}
         {!hasStudio ? (
           <p className="error-text">
-            Not running in Electron — IPC disabled. Open via `npx electron .`.
+            Not running in Electron — IPC disabled. Open via{" "}
+            <code>npx electron .</code>.
           </p>
         ) : null}
       </div>
