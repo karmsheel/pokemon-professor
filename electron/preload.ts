@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 contextBridge.exposeInMainWorld("studio", {
   getControlUrl: () => ipcRenderer.invoke("studio:getControlUrl") as Promise<string>,
@@ -71,6 +71,67 @@ contextBridge.exposeInMainWorld("studio", {
   setLastRomPath: (romPath: string | null) =>
     ipcRenderer.invoke("studio:setLastRomPath", romPath),
   openHermesDocs: () => ipcRenderer.invoke("studio:openHermesDocs"),
+  restartHermesGateway: (override?: object) =>
+    ipcRenderer.invoke("studio:restartHermesGateway", override) as Promise<{
+      ok: boolean;
+      message: string;
+      cli?: string;
+    }>,
+  detectHermesEnv: () => ipcRenderer.invoke("studio:detectHermesEnv"),
   probeHermes: (override?: object) =>
     ipcRenderer.invoke("studio:probeHermes", override),
+  probeHermesAcp: () => ipcRenderer.invoke("studio:probeHermesAcp"),
+
+  listStudents: () => ipcRenderer.invoke("studio:listStudents"),
+  setMetGa: (met: boolean) => ipcRenderer.invoke("studio:setMetGa", met),
+  createStudent: (input: {
+    name: string;
+    avatar: "boy" | "girl";
+    backstory?: string;
+  }) => ipcRenderer.invoke("studio:createStudent", input),
+  updateStudent: (
+    id: string,
+    patch: Partial<{ name: string; avatar: "boy" | "girl"; backstory: string }>
+  ) => ipcRenderer.invoke("studio:updateStudent", id, patch),
+  setActiveStudent: (id: string | null) =>
+    ipcRenderer.invoke("studio:setActiveStudent", id),
+  getGaThread: () => ipcRenderer.invoke("studio:getGaThread"),
+  ensureGa: () => ipcRenderer.invoke("studio:ensureGa"),
+  getStudentPlaySession: (studentId: string) =>
+    ipcRenderer.invoke("studio:getStudentPlaySession", studentId),
+  sendGaMessage: (text: string) =>
+    ipcRenderer.invoke("studio:sendGaMessage", text),
+  sendStudentMessage: (studentId: string, text: string) =>
+    ipcRenderer.invoke("studio:sendStudentMessage", studentId, text),
+  startStudentPlay: (
+    studentId: string,
+    opts?: { missionBrief?: string }
+  ) => ipcRenderer.invoke("studio:startStudentPlay", studentId, opts),
+  seedStudentIntro: (
+    studentId: string,
+    messages: Array<{ role: string; content: string }>
+  ) => ipcRenderer.invoke("studio:seedStudentIntro", studentId, messages),
+  completeStudentCutscene: (input: {
+    name: string;
+    avatar: "boy" | "girl";
+    missionBrief: string;
+    introMessages: Array<{ role: string; content: string }>;
+  }) => ipcRenderer.invoke("studio:completeStudentCutscene", input),
+  stopStudentPlay: () => ipcRenderer.invoke("studio:stopStudentPlay"),
+  consumeProvisionalDiscardToast: () =>
+    ipcRenderer.invoke("studio:consumeProvisionalDiscardToast") as Promise<{
+      message: string;
+    } | null>,
+
+  onAgentEvent: (cb: (payload: unknown) => void) => {
+    const handler = (_: IpcRendererEvent, payload: unknown) => cb(payload);
+    ipcRenderer.on("studio:agentEvent", handler);
+    return () => ipcRenderer.removeListener("studio:agentEvent", handler);
+  },
+  onFirstSavePromoted: (cb: (payload: unknown) => void) => {
+    const handler = (_: IpcRendererEvent, payload: unknown) => cb(payload);
+    ipcRenderer.on("studio:firstSavePromoted", handler);
+    return () =>
+      ipcRenderer.removeListener("studio:firstSavePromoted", handler);
+  },
 });

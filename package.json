@@ -11,7 +11,8 @@
     "dev:electron": "npm run build:electron && electron .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "fork:build": "bash scripts/build-fork.sh",
-    "fork:download": "node scripts/download-fork.cjs"
+    "fork:download": "node scripts/download-fork.cjs",
+    "pp-control": "node scripts/pp-control.cjs"
   },
   "dependencies": {
     "next": "^15.1.0",

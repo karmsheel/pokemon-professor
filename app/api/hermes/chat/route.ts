@@ -154,7 +154,8 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error: "hermes_auth_failed",
-            hint: "Set HERMES_API_KEY to match API_SERVER_KEY in your Hermes env",
+            hint:
+              "Hermes auth failed — studio auto-reads API_SERVER_KEY from your Hermes .env; restart the desktop app or reconnect so the key is applied",
             details,
           },
           { status: 502 }

@@ -9,19 +9,14 @@ import {
   useState,
 } from "react";
 import {
-  gameStartedKickoffMessage,
   isStartGameIntent,
   romNeededMessage,
   romReadyMessage,
-  welcomeMessage,
 } from "@/lib/chat-actions";
-import {
-  HERMES_DOCS_URL,
-  type HermesSettings,
-} from "@/lib/hermes-settings";
 
 type Role = "user" | "assistant" | "system";
 type ControlMode = "agent" | "nudge" | "drive";
+type ChatTab = "ga" | "student";
 
 type UiMessage = {
   id: string;
@@ -29,23 +24,36 @@ type UiMessage = {
   content: string;
 };
 
-type HermesHealth = {
-  ok: boolean;
-  error?: string;
-  hint?: string;
+export type ChatBarStudent = {
+  id: string;
+  name: string;
+  avatar: "boy" | "girl";
 };
 
 export type ChatBarProps = {
   mode?: ControlMode;
-  /** sidebar = right column (tall); bar = legacy bottom strip */
   variant?: "sidebar" | "bar";
-  hermesSettings: HermesSettings;
+  /** Null until cutscene creates / user has a Student. */
+  student: ChatBarStudent | null;
+  students: ChatBarStudent[];
+  /** True after cutscene complete (or resume) and Student is playing. */
+  studentUnlocked: boolean;
+  /** Emulator started (ROM running); may still be in cutscene. */
+  emulatorRunning: boolean;
+  cutsceneActive: boolean;
   romPath: string | null;
   runId: string | null;
   onRomLoaded: (path: string) => void;
   onRunStarted: (run: { id: string }, romPath: string) => void;
-  /** Optional: return to hard gate after failed reconnect */
-  onHermesLost?: () => void;
+  /** Called when Start game should open Student cutscene (no student yet). */
+  onRequestStudentCutscene: () => void;
+  /** Called when Start game should resume an existing Student. */
+  onResumeStudentPlay: (studentId: string) => void;
+  onSwitchStudentRequest: () => void;
+  toast: string | null;
+  onDismissToast: () => void;
+  /** Inject student history after cutscene. */
+  studentHistorySeed?: UiMessage[] | null;
 };
 
 function newId(): string {
@@ -55,56 +63,51 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function romBasename(path: string): string {
+  return path.split(/[/\\]/).pop() || path;
+}
+
 function modeSystemNote(mode: ControlMode): string {
   if (mode === "nudge") return "Agent tools frozen (nudge)";
   if (mode === "drive") return "Agent tools frozen (drive)";
   return "Agent tools resumed";
 }
 
-function modeBadgeClass(mode: ControlMode): string {
-  if (mode === "agent") return "status-pill ok";
-  return "status-pill warn";
-}
-
-function romBasename(path: string): string {
-  return path.split(/[/\\]/).pop() || path;
-}
-
-function hermesQuery(settings: HermesSettings): string {
-  const q = new URLSearchParams({
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-  });
-  if (settings.apiKey) q.set("apiKey", settings.apiKey);
-  return q.toString();
-}
-
 export function ChatBar({
   mode = "agent",
   variant = "sidebar",
-  hermesSettings,
+  student,
+  students,
+  studentUnlocked,
+  emulatorRunning,
+  cutsceneActive,
   romPath,
   runId,
   onRomLoaded,
   onRunStarted,
-  onHermesLost,
+  onRequestStudentCutscene,
+  onResumeStudentPlay,
+  onSwitchStudentRequest,
+  toast,
+  onDismissToast,
+  studentHistorySeed,
 }: ChatBarProps) {
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [tab, setTab] = useState<ChatTab>("ga");
+  const [gaMessages, setGaMessages] = useState<UiMessage[]>([]);
+  const [studentMessages, setStudentMessages] = useState<UiMessage[]>([]);
+  const [studentUnread, setStudentUnread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [statusNote, setStatusNote] = useState<string>("checking Hermes…");
   const [error, setError] = useState<string | null>(null);
-  const [hasStudio, setHasStudio] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  /** True after Hermes has been online at least once this session (for reconnect strip). */
-  const [everConnected, setEverConnected] = useState(false);
+  const [statusNote, setStatusNote] = useState("Game Assistant");
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevModeRef = useRef<ControlMode | null>(null);
-  const welcomedRef = useRef(false);
-  const romPathRef = useRef(romPath);
-  romPathRef.current = romPath;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
+  const messages = tab === "ga" ? gaMessages : studentMessages;
+  const studentEnabled = studentUnlocked && Boolean(student) && !cutsceneActive;
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -116,28 +119,91 @@ export function ChatBar({
     scrollToBottom();
   }, [messages, sending, scrollToBottom]);
 
+  // Load global GA thread
   useEffect(() => {
-    setHasStudio(Boolean(typeof window !== "undefined" && window.studio));
+    let cancelled = false;
+    const load = async () => {
+      if (!window.studio?.getGaThread) {
+        setGaMessages([
+          {
+            id: newId(),
+            role: "assistant",
+            content:
+              "Welcome, Professor. Load your FireRed ROM, then Start game. A Student will contact you after the game boots.",
+          },
+        ]);
+        return;
+      }
+      try {
+        if (window.studio.ensureGa) {
+          await window.studio.ensureGa();
+        }
+        const thread = await window.studio.getGaThread();
+        if (cancelled) return;
+        setGaMessages(
+          thread.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          }))
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Welcome + ROM status once on mount.
+  // Seed student history after cutscene
   useEffect(() => {
-    if (welcomedRef.current) return;
-    welcomedRef.current = true;
-    const path = romPathRef.current;
-    setMessages([
-      { id: newId(), role: "system", content: welcomeMessage() },
-      {
-        id: newId(),
-        role: "system",
-        content: path
-          ? romReadyMessage(romBasename(path))
-          : romNeededMessage(),
-      },
-    ]);
-  }, []);
+    if (studentHistorySeed && studentHistorySeed.length > 0) {
+      setStudentMessages(studentHistorySeed);
+      setTab("student");
+      setStudentUnread(false);
+      setStatusNote(student ? `${student.name} · playing` : "Student");
+    }
+  }, [studentHistorySeed, student]);
 
-  // System note when control mode changes (skip first paint).
+  // Load existing student session when student becomes available (resume)
+  useEffect(() => {
+    if (!student || cutsceneActive) return;
+    let cancelled = false;
+    const load = async () => {
+      if (!window.studio?.getStudentPlaySession) return;
+      try {
+        const play = await window.studio.getStudentPlaySession(student.id);
+        if (cancelled || !play?.session?.messages?.length) return;
+        if (!studentHistorySeed) {
+          setStudentMessages(
+            play.session.messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+            }))
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [student?.id, cutsceneActive, studentHistorySeed]);
+
+  useEffect(() => {
+    if (!romPath) return;
+    setGaMessages((prev) => {
+      const note = romReadyMessage(romBasename(romPath));
+      if (prev.some((m) => m.content === note)) return prev;
+      return [...prev, { id: newId(), role: "system", content: note }];
+    });
+  }, [romPath]);
+
   useEffect(() => {
     if (prevModeRef.current === null) {
       prevModeRef.current = mode;
@@ -145,63 +211,31 @@ export function ChatBar({
     }
     if (prevModeRef.current === mode) return;
     prevModeRef.current = mode;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: newId(),
-        role: "system",
-        content: modeSystemNote(mode),
-      },
-    ]);
-  }, [mode]);
+    const note = {
+      id: newId(),
+      role: "system" as const,
+      content: modeSystemNote(mode),
+    };
+    setGaMessages((prev) => [...prev, note]);
+    if (studentEnabled) {
+      setStudentMessages((prev) => [...prev, note]);
+    }
+  }, [mode, studentEnabled]);
 
-  // Poll Hermes via our proxy so CORS never blocks; never touches emulator UI.
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/hermes/chat?${hermesQuery(hermesSettings)}`, {
-          method: "GET",
-          cache: "no-store",
-        });
-        const data = (await res.json().catch(() => ({}))) as HermesHealth;
-        if (cancelled) return;
-        if (res.ok && data.ok !== false) {
-          setEverConnected(true);
-          setConnected(true);
-          setStatusNote("Hermes connected");
-        } else {
-          setConnected(false);
-          setStatusNote(data.hint || "Hermes unavailable — run `hermes gateway`");
-        }
-      } catch {
-        if (!cancelled) {
-          setConnected(false);
-          setStatusNote("Hermes unavailable — run `hermes gateway`");
-        }
-      } finally {
-        if (!cancelled) timer = setTimeout(tick, 4000);
-      }
-    };
-
-    void tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [hermesSettings.baseUrl, hermesSettings.apiKey, hermesSettings.model]);
-
-  const pushSystem = useCallback((content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: newId(), role: "system", content },
-    ]);
-  }, []);
+    if (studentEnabled && student) {
+      setStatusNote(`${student.name} · playing`);
+    } else if (cutsceneActive) {
+      setStatusNote("Student setup…");
+      setTab("ga");
+    } else {
+      setStatusNote("Game Assistant");
+      setTab("ga");
+    }
+  }, [studentEnabled, student, cutsceneActive]);
 
   const loadRom = useCallback(async () => {
-    if (!window.studio?.pickRom || busy || sending) return;
+    if (!window.studio?.pickRom || busy || sending || cutsceneActive) return;
     setBusy(true);
     setError(null);
     try {
@@ -211,80 +245,25 @@ export function ChatBar({
         await window.studio.setLastRomPath(path);
       }
       onRomLoaded(path);
-      pushSystem(romReadyMessage(romBasename(path)));
+      setGaMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: "system",
+          content: romReadyMessage(romBasename(path)),
+        },
+      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load ROM failed");
     } finally {
       setBusy(false);
     }
-  }, [busy, sending, onRomLoaded, pushSystem]);
-
-  /** POST chat history to Hermes; returns assistant text or throws / sets error. */
-  const postToHermes = useCallback(
-    async (
-      apiMessages: Array<{ role: string; content: string }>
-    ): Promise<string | null> => {
-      const res = await fetch("/api/hermes/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: apiMessages,
-          model: hermesSettings.model,
-          hermes: hermesSettings,
-        }),
-      });
-
-      const data = (await res.json().catch(() => ({}))) as {
-        content?: string;
-        error?: string;
-        hint?: string;
-        details?: string;
-      };
-
-      if (!res.ok) {
-        if (res.status === 503 || data.error === "hermes_unavailable") {
-          setConnected(false);
-          setStatusNote(data.hint || "Run hermes gateway");
-          setError(
-            data.hint
-              ? `Hermes unavailable — ${data.hint}`
-              : "Hermes unavailable — run `hermes gateway`"
-          );
-          return null;
-        }
-        if (data.error === "hermes_auth_failed") {
-          setError(
-            data.hint ||
-              "Hermes auth failed — set HERMES_API_KEY to match API_SERVER_KEY"
-          );
-          return null;
-        }
-        setError(
-          data.error
-            ? data.details
-              ? `${data.error}: ${data.details}`
-              : data.error
-            : `Chat failed (${res.status})`
-        );
-        return null;
-      }
-
-      setEverConnected(true);
-      setConnected(true);
-      setStatusNote("Hermes connected");
-      return (data.content || "").trim() || "(empty reply)";
-    },
-    [hermesSettings]
-  );
+  }, [busy, sending, cutsceneActive, onRomLoaded]);
 
   const startGame = useCallback(async () => {
-    if (busy || sending || !connected) return;
+    if (busy || sending || cutsceneActive) return;
     if (!window.studio?.startGame) {
-      setError(
-        window.studio
-          ? "Start game requires a desktop app rebuild"
-          : "Open the desktop app to start the game"
-      );
+      setError("Open the desktop app to start the game");
       return;
     }
 
@@ -292,35 +271,32 @@ export function ChatBar({
     setSending(true);
     setError(null);
     try {
-      // IPC resolves rom from arg or lastRomPath; validates file exists.
+      if (!romPath) {
+        setGaMessages((prev) => [
+          ...prev,
+          { id: newId(), role: "system", content: romNeededMessage() },
+        ]);
+        setError("Load a FireRed ROM first");
+        return;
+      }
+
       const result = await window.studio.startGame(romPath);
       onRunStarted({ id: result.id }, result.rom_path);
 
-      const kickoff = gameStartedKickoffMessage();
-      const systemNote = `Run ${result.id.slice(0, 8)}… · ${result.connect} · mode agent`;
-      const userMsg: UiMessage = {
-        id: newId(),
-        role: "user",
-        content: kickoff,
-      };
-
-      setMessages((prev) => [
+      setGaMessages((prev) => [
         ...prev,
-        { id: newId(), role: "system", content: systemNote },
-        userMsg,
+        {
+          id: newId(),
+          role: "system",
+          content: `Game started (${result.connect}). Connecting a Student…`,
+        },
       ]);
 
-      // Immediately POST kickoff so Hermes begins agent play.
-      const apiMessages = [...messages, userMsg]
-        .filter((m) => m.role !== "system")
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const reply = await postToHermes(apiMessages);
-      if (reply) {
-        setMessages((prev) => [
-          ...prev,
-          { id: newId(), role: "assistant", content: reply },
-        ]);
+      // First-time: cutscene. Returning: resume existing Student.
+      if (!student) {
+        onRequestStudentCutscene();
+      } else {
+        onResumeStudentPlay(student.id);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Start game failed");
@@ -328,17 +304,30 @@ export function ChatBar({
       setBusy(false);
       setSending(false);
     }
-  }, [busy, sending, connected, romPath, messages, onRunStarted, postToHermes]);
+  }, [
+    busy,
+    sending,
+    cutsceneActive,
+    romPath,
+    student,
+    onRunStarted,
+    onRequestStudentCutscene,
+    onResumeStudentPlay,
+  ]);
 
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || sending || busy || !connected) return;
+      if (!trimmed || sending || busy || cutsceneActive) return;
 
-      // Start-game phrases never go to Hermes as chat — route to start handler.
-      if (isStartGameIntent(trimmed)) {
+      if (tab === "ga" && isStartGameIntent(trimmed)) {
         setDraft("");
         await startGame();
+        return;
+      }
+
+      if (tab === "student" && !studentEnabled) {
+        setError("Student chat unlocks after setup");
         return;
       }
 
@@ -347,81 +336,82 @@ export function ChatBar({
         role: "user",
         content: trimmed,
       };
-
-      // History for Hermes: user + assistant only (system notes are UI-only).
-      const history = [...messages, userMsg];
-      const apiMessages = history
-        .filter((m) => m.role !== "system")
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      setMessages(history);
       setDraft("");
       setSending(true);
       setError(null);
 
-      try {
-        const reply = await postToHermes(apiMessages);
-        if (reply) {
-          setMessages((prev) => [
+      if (tab === "ga") {
+        setGaMessages((prev) => [...prev, userMsg]);
+        try {
+          if (!window.studio?.sendGaMessage) {
+            setGaMessages((prev) => [
+              ...prev,
+              {
+                id: newId(),
+                role: "assistant",
+                content:
+                  "Use Load ROM and Start game when ready. (Desktop ACP required for live replies.)",
+              },
+            ]);
+            return;
+          }
+          const reply = await window.studio.sendGaMessage(trimmed);
+          setGaMessages((prev) => [
             ...prev,
-            { id: newId(), role: "assistant", content: reply },
+            {
+              id: reply.id,
+              role: reply.role,
+              content: reply.content,
+            },
           ]);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "GA send failed");
+        } finally {
+          setSending(false);
         }
+        return;
+      }
+
+      if (!student) {
+        setSending(false);
+        return;
+      }
+
+      setStudentMessages((prev) => [...prev, userMsg]);
+      try {
+        if (!window.studio?.sendStudentMessage) {
+          setError("Desktop ACP required for Student chat");
+          return;
+        }
+        const reply = await window.studio.sendStudentMessage(
+          student.id,
+          trimmed
+        );
+        setStudentMessages((prev) => [
+          ...prev,
+          {
+            id: reply.id,
+            role: reply.role,
+            content: reply.content,
+          },
+        ]);
+        if (tabRef.current !== "student") setStudentUnread(true);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Chat request failed");
+        setError(e instanceof Error ? e.message : "Student send failed");
       } finally {
         setSending(false);
       }
     },
-    [messages, sending, busy, connected, startGame, postToHermes]
+    [
+      tab,
+      sending,
+      busy,
+      cutsceneActive,
+      studentEnabled,
+      student,
+      startGame,
+    ]
   );
-
-  const retryProbe = useCallback(async () => {
-    setRetrying(true);
-    setError(null);
-    try {
-      let ok = false;
-      let hint = "Cannot reach Hermes — start the gateway, then Retry";
-
-      if (window.studio?.probeHermes) {
-        const r = await window.studio.probeHermes(hermesSettings);
-        ok = r.ok;
-        if (!ok) hint = r.hint || hint;
-      } else {
-        const res = await fetch(`/api/hermes/chat?${hermesQuery(hermesSettings)}`, {
-          cache: "no-store",
-        });
-        const data = (await res.json().catch(() => ({}))) as HermesHealth;
-        ok = res.ok && data.ok !== false;
-        if (!ok) hint = data.hint || hint;
-      }
-
-      if (ok) {
-        setEverConnected(true);
-        setConnected(true);
-        setStatusNote("Hermes connected");
-      } else {
-        setConnected(false);
-        setStatusNote(hint);
-        setError(hint);
-        // Prefer reconnect strip; only hard-gate if parent opts in.
-        onHermesLost?.();
-      }
-    } catch {
-      setConnected(false);
-      const hint = "Cannot reach Hermes — start the gateway, then Retry";
-      setStatusNote(hint);
-      setError(hint);
-      onHermesLost?.();
-    } finally {
-      setRetrying(false);
-    }
-  }, [hermesSettings, onHermesLost]);
-
-  const openDocs = useCallback(async () => {
-    if (window.studio?.openHermesDocs) await window.studio.openHermesDocs();
-    else window.open(HERMES_DOCS_URL, "_blank", "noopener,noreferrer");
-  }, []);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -435,165 +425,163 @@ export function ChatBar({
     }
   };
 
-  const bubbleClass = (role: Role) => {
-    if (role === "user") return "chat-bubble chat-bubble-user";
-    if (role === "system") return "chat-bubble chat-bubble-system";
-    return "chat-bubble chat-bubble-assistant";
+  const selectTab = (next: ChatTab) => {
+    if (next === "student" && !studentEnabled) return;
+    setTab(next);
+    if (next === "student") setStudentUnread(false);
   };
-
-  const roleLabel = (role: Role) => {
-    if (role === "user") return "Professor";
-    if (role === "system") return "System";
-    return "Hermes";
-  };
-
-  const shellClass =
-    variant === "sidebar" ? "panel chat-bar chat-bar-sidebar" : "chat-bar chat-bar-strip";
-
-  const showReconnect = !connected && everConnected;
-  const actionsLocked = busy || sending;
-  // Start game + send require Hermes; reconnect strip is the only recovery path (no Skip).
-  const canStart = hasStudio && Boolean(romPath) && connected && !actionsLocked;
-  const canSend = connected && !actionsLocked && Boolean(draft.trim());
-  const canLoadRom = hasStudio && !actionsLocked;
 
   return (
-    <section className={shellClass} aria-label="Hermes chat">
-      <div className="chat-bar-header">
-        <h2 className="chat-title">Hermes chat</h2>
-        <div className="chat-bar-badges">
-          <span
-            className={`status-pill ${connected ? "ok" : ""}`}
-            title={statusNote}
-          >
-            <span className="dot" />
-            {connected ? "online" : "offline"}
-          </span>
-          <span
-            className={modeBadgeClass(mode)}
-            data-testid="chat-mode-badge"
-            title="Control mode"
-          >
-            <span className="dot" />
-            {mode}
-          </span>
-          {runId ? (
-            <span className="status-pill" title={runId}>
-              run {runId.slice(0, 8)}…
-            </span>
-          ) : null}
-        </div>
-        <span className="muted chat-status-note">{statusNote}</span>
-      </div>
-
-      {showReconnect ? (
-        <div className="reconnect-strip" data-testid="hermes-reconnect-strip">
-          <span>Hermes disconnected</span>
-          <div className="reconnect-strip-actions">
-            <button
-              type="button"
-              className="primary"
-              disabled={retrying}
-              onClick={() => void retryProbe()}
-            >
-              {retrying ? "Retrying…" : "Retry"}
-            </button>
-            <button type="button" disabled={retrying} onClick={() => void openDocs()}>
-              Open Hermes docs
-            </button>
-          </div>
+    <aside
+      className={`chat-bar panel ${variant === "sidebar" ? "chat-bar-sidebar" : "chat-bar-strip"}`}
+      data-testid="chat-bar"
+      aria-label="Chat"
+    >
+      {toast ? (
+        <div className="chat-toast" role="status">
+          <span>{toast}</span>
+          <button type="button" className="ghost" onClick={onDismissToast}>
+            Dismiss
+          </button>
         </div>
       ) : null}
 
-      <div className="chat-messages" ref={listRef} aria-live="polite">
-        {messages.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Coach your disciple here.
-          </p>
-        ) : (
-          messages.map((m) => (
-            <div key={m.id} className={bubbleClass(m.role)}>
-              <div className="chat-bubble-role">{roleLabel(m.role)}</div>
-              <div className="chat-bubble-body">{m.content}</div>
-            </div>
-          ))
-        )}
-        {sending ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Thinking…
-          </p>
+      <div className="chat-agent-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "ga"}
+          className={`agent-tab ${tab === "ga" ? "active" : ""}`}
+          onClick={() => selectTab("ga")}
+          title="Game Assistant"
+        >
+          <span className="agent-avatar ga">GA</span>
+          <span className="agent-tab-label">Assistant</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "student"}
+          className={`agent-tab ${tab === "student" ? "active" : ""} ${
+            !studentEnabled ? "disabled" : ""
+          }`}
+          disabled={!studentEnabled}
+          onClick={() => selectTab("student")}
+          title={
+            studentEnabled && student
+              ? student.name
+              : "Student unlocks after Start game setup"
+          }
+        >
+          <span
+            className={`agent-avatar student ${student?.avatar || "boy"}`}
+          >
+            {student ? (student.avatar === "boy" ? "♂" : "♀") : "?"}
+            {studentUnread ? <span className="unread-dot" /> : null}
+          </span>
+          <span className="agent-tab-label">
+            {student?.name || "Student"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="agent-switcher ghost"
+          title="Students"
+          disabled={emulatorRunning || cutsceneActive || studentUnlocked}
+          onClick={onSwitchStudentRequest}
+        >
+          ▾
+        </button>
+      </div>
+
+      <div className="chat-bar-header">
+        <span className="status-pill ok">{statusNote}</span>
+        {runId ? (
+          <span className="muted small">run {runId.slice(0, 8)}…</span>
         ) : null}
       </div>
 
-      {error ? <p className="error-text chat-error">{error}</p> : null}
+      {!cutsceneActive ? (
+        <div className="chat-cta-row">
+          <button
+            type="button"
+            disabled={busy || sending}
+            onClick={() => void loadRom()}
+          >
+            Load FireRed ROM…
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || sending || !romPath || emulatorRunning}
+            onClick={() => void startGame()}
+          >
+            Start game
+          </button>
+        </div>
+      ) : null}
 
-      <div className="chat-cta-row" data-testid="chat-cta-row">
-        <button
-          type="button"
-          disabled={!canLoadRom}
-          onClick={() => void loadRom()}
-          title={
-            hasStudio
-              ? "Pick your legally obtained FireRed .gba ROM"
-              : "Open the desktop app to load ROMs"
-          }
-        >
-          Load FireRed ROM…
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={!canStart}
-          onClick={() => void startGame()}
-          title={
-            !hasStudio
-              ? "Open the desktop app to start the game"
-              : !romPath
-                ? "Load a FireRed ROM first"
-                : !connected
-                  ? "Hermes disconnected — Retry above to start the game"
-                  : "Start run in agent mode"
-          }
-        >
-          Start game
-        </button>
+      <div className="chat-messages" ref={listRef}>
+        {tab === "student" && !studentEnabled ? (
+          <div className="chat-bubble chat-bubble-system">
+            <div className="chat-bubble-body">
+              Student chat unlocks after you start the game and finish setup.
+            </div>
+          </div>
+        ) : null}
+        {messages.map((m) => (
+          <div key={m.id} className={`chat-bubble chat-bubble-${m.role}`}>
+            <div className="chat-bubble-role">{m.role}</div>
+            <div className="chat-bubble-body">{m.content}</div>
+          </div>
+        ))}
+        {sending ? (
+          <div className="chat-bubble chat-bubble-system">
+            <div className="chat-bubble-body muted">Thinking…</div>
+          </div>
+        ) : null}
       </div>
-      {!hasStudio ? (
-        <p className="muted chat-desktop-hint">
-          Open the desktop app to load ROMs and start the game.
+
+      {error ? (
+        <p className="error-text chat-error" role="alert">
+          {error}
         </p>
       ) : null}
 
       <form className="chat-compose" onSubmit={onSubmit}>
-        <label htmlFor="hermes-chat" className="sr-only">
-          Chat with Hermes
-        </label>
         <textarea
-          id="hermes-chat"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={
-            connected
-              ? "Message Hermes… (Enter to send, Shift+Enter for newline)"
-              : "Hermes offline — reconnect above to send"
+            cutsceneActive
+              ? "Finish Student setup…"
+              : tab === "ga"
+                ? "Message Game Assistant…"
+                : `Message ${student?.name || "Student"}…`
           }
-          rows={variant === "sidebar" ? 4 : 2}
-          disabled={sending || busy || !connected}
+          rows={2}
+          disabled={
+            sending ||
+            busy ||
+            cutsceneActive ||
+            (tab === "student" && !studentEnabled)
+          }
         />
         <button
           type="submit"
           className="primary"
-          disabled={!canSend}
-          title={
-            !connected
-              ? "Hermes disconnected — Retry above to send"
-              : undefined
+          disabled={
+            sending ||
+            busy ||
+            cutsceneActive ||
+            !draft.trim() ||
+            (tab === "student" && !studentEnabled)
           }
         >
-          {sending ? "Sending…" : "Send"}
+          Send
         </button>
       </form>
-    </section>
+    </aside>
   );
 }

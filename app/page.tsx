@@ -1,94 +1,150 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChatBar } from "@/components/chat-bar";
-import { HermesConnectGate } from "@/components/hermes-connect-gate";
+import { HermesAcpGate } from "@/components/hermes-acp-gate";
 import { LiveView } from "@/components/live-view";
+import { MeetGa } from "@/components/meet-ga";
 import { OverrideControls } from "@/components/override-controls";
 import { RunRail } from "@/components/run-rail";
+import { StudentCutscene } from "@/components/student-cutscene";
+import { StudentSelect } from "@/components/student-select";
 import { fetchHealth } from "@/lib/control-client";
-import {
-  DEFAULT_HERMES_SETTINGS,
-  type HermesSettings,
-} from "@/lib/hermes-settings";
 
 type ControlMode = "agent" | "nudge" | "drive";
 
+type Student = {
+  id: string;
+  name: string;
+  avatar: "boy" | "girl";
+  backstory: string;
+};
+
+type Phase = "bootstrap" | "gate" | "meet-ga" | "studio";
+
+type UiMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
 export default function StudioPage() {
-  const [hermesReady, setHermesReady] = useState(false);
-  const [hermesSettings, setHermesSettings] = useState<HermesSettings>(
-    DEFAULT_HERMES_SETTINGS
-  );
-  /** False until mount bootstrap finishes (settings load + optional probe). */
-  const [hermesBootstrapped, setHermesBootstrapped] = useState(false);
+  const [phase, setPhase] = useState<Phase>("bootstrap");
+  const [students, setStudents] = useState<Student[]>([]);
+  const [activeStudent, setActiveStudent] = useState<Student | null>(null);
+  const [showStudentPicker, setShowStudentPicker] = useState(false);
+  const [cutsceneActive, setCutsceneActive] = useState(false);
+  const [emulatorRunning, setEmulatorRunning] = useState(false);
+  const [studentUnlocked, setStudentUnlocked] = useState(false);
+  const [studentHistorySeed, setStudentHistorySeed] = useState<
+    UiMessage[] | null
+  >(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const [controlUrl, setControlUrl] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [romPath, setRomPath] = useState<string | null>(null);
   const [mode, setMode] = useState<ControlMode>("agent");
   const [healthNote, setHealthNote] = useState<string>("connecting…");
+  const [healthTone, setHealthTone] = useState<"ok" | "warn" | "danger">(
+    "warn"
+  );
 
-  // Load stored Hermes settings + last ROM + optional auto-probe. Fail → stay on gate.
+  const refreshStudents = useCallback(async () => {
+    if (!window.studio?.listStudents) {
+      return {
+        students: [] as Student[],
+        activeStudentId: null as string | null,
+        metGa: false,
+      };
+    }
+    const data = await window.studio.listStudents();
+    setStudents(data.students);
+    const active =
+      data.students.find((s) => s.id === data.activeStudentId) ||
+      data.students[0] ||
+      null;
+    setActiveStudent(active);
+    return data;
+  }, []);
+
+  // Bootstrap → gate / meet GA / main studio (no Student required).
   useEffect(() => {
     let cancelled = false;
 
-    const bootHermes = async () => {
-      let settings: HermesSettings = DEFAULT_HERMES_SETTINGS;
+    const boot = async () => {
       let lastRom: string | null = null;
-
       if (window.studio?.getSettings) {
         try {
           const stored = await window.studio.getSettings();
-          if (stored?.hermes) {
-            settings = {
-              baseUrl: stored.hermes.baseUrl,
-              apiKey: stored.hermes.apiKey,
-              model: stored.hermes.model,
-            };
-          }
-          if (stored?.lastRomPath) {
-            lastRom = stored.lastRomPath;
-          }
+          if (stored?.lastRomPath) lastRom = stored.lastRomPath;
         } catch {
-          /* keep defaults */
+          /* defaults */
         }
+      }
+      if (!cancelled && lastRom) setRomPath(lastRom);
+
+      let metGa = false;
+
+      if (window.studio?.listStudents) {
+        try {
+          const data = await window.studio.listStudents();
+          if (cancelled) return;
+          setStudents(data.students);
+          metGa = data.metGa;
+          const active =
+            data.students.find((s) => s.id === data.activeStudentId) ||
+            data.students[0] ||
+            null;
+          setActiveStudent(active);
+        } catch {
+          /* stay on gate path */
+        }
+      }
+
+      let acpOk = false;
+      if (window.studio?.probeHermesAcp || window.studio?.probeHermes) {
+        try {
+          const r = window.studio.probeHermesAcp
+            ? await window.studio.probeHermesAcp()
+            : await window.studio.probeHermes!();
+          acpOk = Boolean(r.ok);
+        } catch {
+          acpOk = false;
+        }
+      } else {
+        // Browser-only UI work
+        acpOk = true;
+        metGa = true;
       }
 
       if (cancelled) return;
-      setHermesSettings(settings);
-      if (lastRom) setRomPath(lastRom);
 
-      // Auto-probe once when studio IPC is available; never auto-enter on failure.
-      if (window.studio?.probeHermes) {
-        try {
-          const r = await window.studio.probeHermes(settings);
-          if (!cancelled && r.ok) {
-            setHermesReady(true);
-          }
-        } catch {
-          /* stay on gate */
-        }
+      if (!acpOk) {
+        setPhase("gate");
+        return;
       }
-
-      if (!cancelled) setHermesBootstrapped(true);
+      if (!metGa) {
+        setPhase("meet-ga");
+        return;
+      }
+      setPhase("studio");
     };
 
-    void bootHermes();
+    void boot();
     return () => {
       cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    if (!hermesReady) return;
+    if (phase !== "studio") return;
     let cancelled = false;
 
     const boot = async () => {
       if (!window.studio) {
-        // Browser-only: allow pointing at a running Control API for UI work.
-        const fallback = "http://127.0.0.1:7946";
-        setControlUrl(fallback);
-        setHealthNote("browser mode → " + fallback);
+        setControlUrl("http://127.0.0.1:7946");
+        setHealthNote("browser mode");
         return;
       }
       try {
@@ -97,9 +153,13 @@ export default function StudioPage() {
           setControlUrl(url);
           setHealthNote(url);
         }
+        // Warm GA (seed welcome + optional ACP)
+        await window.studio.ensureGa?.();
       } catch (e) {
         if (!cancelled) {
-          setHealthNote(e instanceof Error ? e.message : "getControlUrl failed");
+          setHealthNote(
+            e instanceof Error ? e.message : "getControlUrl failed"
+          );
         }
       }
     };
@@ -108,10 +168,10 @@ export default function StudioPage() {
     return () => {
       cancelled = true;
     };
-  }, [hermesReady]);
+  }, [phase]);
 
   useEffect(() => {
-    if (!hermesReady || !controlUrl) return;
+    if (phase !== "studio" || !controlUrl) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -123,11 +183,25 @@ export default function StudioPage() {
           setMode(h.mode);
         }
         if (h.run_id) setRunId(h.run_id);
-        setHealthNote(
-          `${h.emulator ?? "?"} · rom=${h.rom_loaded ? "yes" : "no"} · mode=${h.mode}`
-        );
+        if (h.rom_loaded) {
+          setEmulatorRunning(true);
+          const emu =
+            h.emulator === "mgba"
+              ? "mGBA"
+              : h.emulator === "mock"
+                ? "Mock"
+                : h.emulator ?? "emulator";
+          setHealthNote(`${emu} · ROM loaded`);
+          setHealthTone("ok");
+        } else {
+          setHealthNote("No ROM loaded");
+          setHealthTone("warn");
+        }
       } catch {
-        if (!cancelled) setHealthNote("health unreachable");
+        if (!cancelled) {
+          setHealthNote("health unreachable");
+          setHealthTone("danger");
+        }
       } finally {
         if (!cancelled) timer = setTimeout(tick, 1000);
       }
@@ -138,66 +212,191 @@ export default function StudioPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [hermesReady, controlUrl]);
+  }, [phase, controlUrl]);
 
-  // Match SSR + first client paint: hold until bootstrap so gate gets stored settings.
-  if (!hermesBootstrapped) {
+  useEffect(() => {
+    if (!window.studio?.onFirstSavePromoted) return;
+    return window.studio.onFirstSavePromoted(() => {
+      setToast("First in-game save recorded — journey progress is now durable.");
+    });
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "studio" || !window.studio?.consumeProvisionalDiscardToast)
+      return;
+    void window.studio.consumeProvisionalDiscardToast().then((t) => {
+      if (t?.message) setToast(t.message);
+    });
+  }, [phase]);
+
+  const resumeStudentPlay = useCallback(async (studentId: string) => {
+    if (!window.studio?.startStudentPlay) {
+      setStudentUnlocked(true);
+      return;
+    }
+    try {
+      const play = await window.studio.startStudentPlay(studentId);
+      setActiveStudent(play.student);
+      setStudentHistorySeed(
+        play.session.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+        }))
+      );
+      setStudentUnlocked(true);
+      setCutsceneActive(false);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to start Student");
+    }
+  }, []);
+
+  if (phase === "bootstrap") {
     return (
-      <div className="hermes-gate" data-testid="hermes-bootstrap">
+      <div className="hermes-gate" data-testid="studio-bootstrap">
         <div className="hermes-gate-card panel">
-          <p className="muted">Loading Hermes settings…</p>
+          <p className="muted">Starting Studio…</p>
         </div>
       </div>
     );
   }
 
-  if (!hermesReady) {
+  if (phase === "gate") {
     return (
-      <HermesConnectGate
-        key={`${hermesSettings.baseUrl}|${hermesSettings.model}`}
-        initial={hermesSettings}
-        onConnected={(s) => {
-          setHermesSettings(s);
-          setHermesReady(true);
+      <HermesAcpGate
+        onReady={() => {
+          setPhase("meet-ga");
+        }}
+      />
+    );
+  }
+
+  if (phase === "meet-ga") {
+    return (
+      <MeetGa
+        onContinue={() => {
+          void window.studio?.setMetGa?.(true);
+          setPhase("studio");
+        }}
+      />
+    );
+  }
+
+  // Optional student picker (between journeys — not first-run gate)
+  if (showStudentPicker) {
+    return (
+      <StudentSelect
+        students={students}
+        onCreated={async (s) => {
+          setStudents((prev) =>
+            prev.some((p) => p.id === s.id) ? prev : [...prev, s]
+          );
+          setActiveStudent(s);
+          if (window.studio?.setActiveStudent) {
+            await window.studio.setActiveStudent(s.id);
+          }
+          setShowStudentPicker(false);
+        }}
+        onSelect={async (id) => {
+          if (window.studio?.setActiveStudent) {
+            await window.studio.setActiveStudent(id);
+          }
+          await refreshStudents();
+          setShowStudentPicker(false);
         }}
       />
     );
   }
 
   return (
-    <div className="studio-root">
+    <div
+      className={`studio-root ${cutsceneActive ? "studio-cutscene-mode" : ""}`}
+    >
       <div className="studio-main">
-        <aside className="studio-run-rail" aria-label="Run rail">
-          <RunRail
-            runId={runId}
-            romPath={romPath}
+        {!cutsceneActive ? (
+          <aside className="studio-run-rail" aria-label="Run rail">
+            <RunRail
+              runId={runId}
+              romPath={romPath}
+              controlUrl={controlUrl}
+              onRunStarted={(run, path) => {
+                setRunId(run.id);
+                setRomPath(path);
+              }}
+            />
+          </aside>
+        ) : null}
+
+        <div
+          className={`studio-center ${cutsceneActive ? "cutscene-pip" : ""}`}
+        >
+          <LiveView
             controlUrl={controlUrl}
+            mode={mode}
+            healthNote={healthNote}
+            healthTone={healthTone}
+          />
+          {!cutsceneActive ? (
+            <OverrideControls mode={mode} onModeChange={setMode} />
+          ) : null}
+        </div>
+
+        {cutsceneActive ? (
+          <div className="studio-cutscene-slot">
+            <StudentCutscene
+              onComplete={(result) => {
+                setActiveStudent(result.student);
+                setStudents((prev) => {
+                  if (prev.some((p) => p.id === result.student.id)) return prev;
+                  return [...prev, result.student];
+                });
+                setStudentHistorySeed(result.sessionMessages);
+                setStudentUnlocked(true);
+                setCutsceneActive(false);
+                setToast(
+                  `${result.student.name} is in the field. Watch them play — or coach in chat.`
+                );
+              }}
+              onError={(msg) => setToast(msg)}
+            />
+          </div>
+        ) : (
+          <ChatBar
+            mode={mode}
+            variant="sidebar"
+            student={activeStudent}
+            students={students}
+            studentUnlocked={studentUnlocked}
+            emulatorRunning={emulatorRunning}
+            cutsceneActive={false}
+            romPath={romPath}
+            runId={runId}
+            toast={toast}
+            onDismissToast={() => setToast(null)}
+            studentHistorySeed={studentHistorySeed}
+            onRomLoaded={(path) => setRomPath(path)}
             onRunStarted={(run, path) => {
               setRunId(run.id);
               setRomPath(path);
+              setEmulatorRunning(true);
+            }}
+            onRequestStudentCutscene={() => {
+              setCutsceneActive(true);
+            }}
+            onResumeStudentPlay={(id) => {
+              void resumeStudentPlay(id);
+            }}
+            onSwitchStudentRequest={() => {
+              if (emulatorRunning || studentUnlocked) {
+                setToast(
+                  "Finish or stop the current game before switching Student."
+                );
+                return;
+              }
+              setShowStudentPicker(true);
             }}
           />
-        </aside>
-        <div className="studio-center">
-          <div className="status-pill ok" style={{ alignSelf: "flex-start" }}>
-            <span className="dot" />
-            {healthNote}
-          </div>
-          <LiveView controlUrl={controlUrl} mode={mode} />
-          <OverrideControls mode={mode} onModeChange={setMode} />
-        </div>
-        <ChatBar
-          mode={mode}
-          variant="sidebar"
-          hermesSettings={hermesSettings}
-          romPath={romPath}
-          runId={runId}
-          onRomLoaded={(path) => setRomPath(path)}
-          onRunStarted={(run, path) => {
-            setRunId(run.id);
-            setRomPath(path);
-          }}
-        />
+        )}
       </div>
     </div>
   );

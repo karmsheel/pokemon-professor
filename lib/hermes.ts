@@ -1,3 +1,4 @@
+import { fillHermesAuthGaps } from "./hermes-env";
 import {
   normalizeHermesSettings,
   type HermesSettings,
@@ -14,23 +15,40 @@ export type ChatMessage = {
   content: string;
 };
 
+/**
+ * Defaults from process env + auto-detected Hermes API_SERVER_KEY.
+ * Empty HERMES_API_KEY is filled from the local Hermes Agent .env when present.
+ */
 export function hermesConfig(): HermesConfig {
+  const filled = fillHermesAuthGaps({
+    baseUrl: process.env.HERMES_BASE_URL,
+    apiKey: process.env.HERMES_API_KEY,
+    model: process.env.HERMES_MODEL,
+  });
   return {
-    baseUrl: process.env.HERMES_BASE_URL || "http://127.0.0.1:8642",
-    apiKey: process.env.HERMES_API_KEY || "",
-    model: process.env.HERMES_MODEL || "hermes-agent",
+    baseUrl: filled.baseUrl,
+    apiKey: filled.apiKey,
+    model: filled.model,
   };
 }
 
-/** Merge optional per-request settings over env defaults (normalized). */
+/**
+ * Merge optional per-request settings over env / Hermes-detected defaults.
+ * Empty-string overrides do NOT wipe a real API key (fixes gate/settings
+ * sending apiKey:"" and causing 401 against API_SERVER_KEY-protected gateways).
+ */
 export function resolveHermesConfig(
   override?: Partial<HermesSettings> | null
 ): HermesConfig {
-  const env = hermesConfig();
+  const filled = fillHermesAuthGaps({
+    baseUrl: override?.baseUrl,
+    apiKey: override?.apiKey,
+    model: override?.model,
+  });
   return normalizeHermesSettings({
-    baseUrl: override?.baseUrl ?? env.baseUrl,
-    apiKey: override?.apiKey ?? env.apiKey,
-    model: override?.model ?? env.model,
+    baseUrl: filled.baseUrl,
+    apiKey: filled.apiKey,
+    model: filled.model,
   });
 }
 

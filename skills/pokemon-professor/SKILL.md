@@ -185,27 +185,28 @@ Prefer playing over talking. Short updates (1–3 sentences).
 - Water > Fire/Ground/Rock · Fire > Grass/Bug · Grass > Water/Ground/Rock  
 - Electric > Water/Flying · Ground > Fire/Electric · Psychic strong in Gen 1
 
-## Example curl sequences
+## Control helper CLI (preferred)
+
+**Do not use PowerShell `curl`** (it is not real curl). Prefer the Studio helper:
 
 ```bash
-# Observe (latest buffer — no capture)
-curl -s http://127.0.0.1:7946/state
-curl -s http://127.0.0.1:7946/snapshot
+# From the pokemon-professor repo (or $env:PP_CONTROL_CLI absolute path)
+node scripts/pp-control.cjs health
+node scripts/pp-control.cjs snapshot --fresh --save %TEMP%\pp-frame.png
+node scripts/pp-control.cjs input RIGHT RIGHT A
+node scripts/pp-control.cjs state
+node scripts/pp-control.cjs save before_brock
+```
 
-# Force fresh capture after moves / fade
-curl -s -X POST http://127.0.0.1:7946/snapshot
+Env: `PP_CONTROL_URL` (default `http://127.0.0.1:7946`). Exit code `3` means input blocked (nudge/drive).
 
-# Act (agent mode)
-curl -s -X POST http://127.0.0.1:7946/input \
-  -H "content-type: application/json" \
-  -d "{\"buttons\":[\"RIGHT\",\"RIGHT\",\"A\"]}"
+### Fallback raw HTTP (if CLI missing)
 
-# If 409 — check mode and wait
-curl -s http://127.0.0.1:7946/health
-# ... after Professor resumes agent ...
-curl -s -X POST http://127.0.0.1:7946/input \
-  -H "content-type: application/json" \
-  -d "{\"buttons\":[\"UP\"]}"
+```bash
+# Prefer curl.exe on Windows, not PowerShell curl
+curl.exe -s http://127.0.0.1:7946/health
+curl.exe -s -X POST http://127.0.0.1:7946/snapshot
+curl.exe -s -X POST http://127.0.0.1:7946/input -H "content-type: application/json" -d "{\"buttons\":[\"RIGHT\",\"RIGHT\",\"A\"]}"
 ```
 
 ## Pitfalls

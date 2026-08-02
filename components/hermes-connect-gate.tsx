@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   HERMES_DOCS_URL,
   isValidHermesBaseUrl,
@@ -21,11 +21,59 @@ export function HermesConnectGate({
   const [apiKey, setApiKey] = useState(initial.apiKey);
   const [model, setModel] = useState(initial.model);
   const [busy, setBusy] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
+  const [keyHint, setKeyHint] = useState<string | null>(null);
+
+  const locked = busy || restarting;
+  const canRestartGateway = Boolean(window.studio?.restartHermesGateway);
+
+  // Auto-detect API_SERVER_KEY from the local Hermes Agent install.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!window.studio?.detectHermesEnv) return;
+      try {
+        const info = await window.studio.detectHermesEnv();
+        if (cancelled) return;
+        if (info.filled.apiKey) {
+          setApiKey((prev) => prev || info.filled.apiKey);
+          if (info.filled.baseUrl) {
+            setBaseUrl((prev) =>
+              !prev || prev === "http://127.0.0.1:8642"
+                ? info.filled.baseUrl
+                : prev
+            );
+          }
+          if (info.apiKeySource === "hermes-env") {
+            setKeyHint(
+              "API key loaded from Hermes API_SERVER_KEY (local .env) — no paste needed."
+            );
+          } else if (info.apiKeySource === "env") {
+            setKeyHint("API key loaded from HERMES_API_KEY.");
+          } else if (info.apiKeyConfigured) {
+            setKeyHint("API key ready.");
+          }
+        } else {
+          setKeyHint(
+            "No API_SERVER_KEY found in Hermes .env — leave blank only if your gateway allows unauthenticated access."
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const connect = async () => {
     setBusy(true);
     setError(null);
+    setStatusNote(null);
     const settings = normalizeHermesSettings({ baseUrl, apiKey, model });
     if (!isValidHermesBaseUrl(settings.baseUrl)) {
       setError("Enter a valid http(s) URL for the Hermes gateway.");
@@ -66,6 +114,44 @@ export function HermesConnectGate({
     }
   };
 
+  const restartGateway = async () => {
+    if (!window.studio?.restartHermesGateway) {
+      setError("Restart gateway requires the desktop app.");
+      return;
+    }
+    setRestarting(true);
+    setError(null);
+    setStatusNote("Restarting Hermes gateway…");
+    const settings = normalizeHermesSettings({ baseUrl, apiKey, model });
+    if (!isValidHermesBaseUrl(settings.baseUrl)) {
+      setError("Enter a valid http(s) URL for the Hermes gateway.");
+      setRestarting(false);
+      return;
+    }
+    try {
+      const result = await window.studio.restartHermesGateway(settings);
+      if (!result.ok) {
+        setError(result.message);
+        setStatusNote(null);
+        return;
+      }
+      // Health already checked by the restart helper; persist + enter shell.
+      if (window.studio.setHermesSettings) {
+        await window.studio.setHermesSettings(settings);
+      }
+      setStatusNote(result.message);
+      onConnected(settings);
+      // Parent unmounts this gate — do not rely on further state updates.
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Failed to restart Hermes gateway"
+      );
+      setStatusNote(null);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   const openDocs = async () => {
     if (window.studio?.openHermesDocs) await window.studio.openHermesDocs();
     else window.open(HERMES_DOCS_URL, "_blank", "noopener,noreferrer");
@@ -90,7 +176,7 @@ export function HermesConnectGate({
               spellCheck={false}
               placeholder="http://127.0.0.1:8642"
               value={baseUrl}
-              disabled={busy}
+              disabled={locked}
               onChange={(e) => setBaseUrl(e.target.value)}
             />
           </div>
@@ -100,11 +186,16 @@ export function HermesConnectGate({
               id="hermes-api-key"
               type="password"
               autoComplete="off"
-              placeholder="Optional"
+              placeholder="Auto from Hermes API_SERVER_KEY"
               value={apiKey}
-              disabled={busy}
+              disabled={locked}
               onChange={(e) => setApiKey(e.target.value)}
             />
+            {keyHint ? (
+              <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem" }}>
+                {keyHint}
+              </p>
+            ) : null}
           </div>
           <div className="field">
             <label htmlFor="hermes-model">Model</label>
@@ -115,11 +206,17 @@ export function HermesConnectGate({
               spellCheck={false}
               placeholder="hermes-agent"
               value={model}
-              disabled={busy}
+              disabled={locked}
               onChange={(e) => setModel(e.target.value)}
             />
           </div>
         </div>
+
+        {statusNote && !error ? (
+          <p className="muted" data-testid="hermes-gate-status">
+            {statusNote}
+          </p>
+        ) : null}
 
         {error ? (
           <p className="error-text" role="alert">
@@ -131,14 +228,27 @@ export function HermesConnectGate({
           <button
             type="button"
             className="primary"
-            disabled={busy}
+            disabled={locked}
             onClick={() => void connect()}
           >
             {busy ? "Connecting…" : error ? "Retry" : "Connect"}
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={locked || !canRestartGateway}
+            title={
+              canRestartGateway
+                ? "Run hermes gateway restart, then connect when healthy"
+                : "Restart gateway requires the desktop app"
+            }
+            onClick={() => void restartGateway()}
+            data-testid="hermes-restart-gateway"
+          >
+            {restarting ? "Restarting…" : "Restart gateway"}
+          </button>
+          <button
+            type="button"
+            disabled={locked}
             onClick={() => void openDocs()}
           >
             Open Hermes docs

@@ -1,15 +1,64 @@
+/* =============================================================================
+   Pokemon Professor — GBA Blue Dashboard (Phase 0 tokens + surface restyle)
+   Brand language locked to the Aug 2026 Hermes dashboard reference image.
+   ============================================================================= */
+
 :root {
   color-scheme: dark;
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1e2330;
-  --border: #2a3142;
-  --text: #e8ecf4;
-  --muted: #9aa3b5;
-  --accent: #5b8cff;
-  --accent-2: #3dd68c;
-  --warn: #f0b429;
-  --danger: #f07178;
+
+  /* Shell & surfaces */
+  --bg: #0a1e38;
+  --bg-deep: #071528;
+  --panel: #0f2d52;
+  --panel-2: #153a66;
+  --panel-3: #1a4578;
+
+  /* Lines & chrome */
+  --border: #2b5f9a;
+  --border-soft: #1e4a78;
+  --border-strong: #3d7ec4;
+
+  /* Text */
+  --text: #e8f1fc;
+  --muted: #8fafd4;
+
+  /* Brand / actions */
+  --accent: #3b9eff;
+  --accent-strong: #2563eb;
+  --accent-soft: rgba(59, 158, 255, 0.14);
+
+  /* Status */
+  --ok: #2dd4a0;
+  --ok-soft: rgba(45, 212, 160, 0.16);
+  --warn: #f0c414;
+  --warn-soft: rgba(240, 196, 20, 0.14);
+  --danger: #ff6b6b;
+  --danger-soft: rgba(255, 107, 107, 0.14);
+
+  /* Chat bubbles */
+  --bubble-ai: #1d5fd4;
+  --bubble-ai-border: #3b82f6;
+  --bubble-user: #1a4a7a;
+  --bubble-user-border: #2d6aaa;
+  --bubble-system: #122844;
+
+  /* Emulator stage */
+  --screen-bg: #040a12;
+  --bezel: #1a4a8a;
+  --bezel-glow: rgba(59, 158, 255, 0.28);
+
+  /* Aliases used by existing rules / mental model */
+  --accent-2: var(--ok);
+
+  /* Shape & depth */
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+  --shadow-panel:
+    0 10px 28px rgba(0, 10, 32, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-gate: 0 16px 48px rgba(0, 8, 28, 0.55);
+
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -22,14 +71,15 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--bg);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
   color: var(--text);
   font-family: var(--font);
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -38,14 +88,18 @@ button {
   cursor: pointer;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 0.45rem 0.75rem;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.12s ease;
 }
 
 button:hover:not(:disabled) {
-  background: #262c3c;
-  border-color: #3a4560;
+  background: var(--panel-3);
+  border-color: var(--border-strong);
 }
 
 button:disabled {
@@ -54,33 +108,48 @@ button:disabled {
 }
 
 button.primary {
-  background: #243868;
-  border-color: #3d5fa8;
+  background: var(--accent-strong);
+  border-color: #1d4ed8;
+  color: #fff;
+  box-shadow: 0 2px 0 #0f2f6e;
 }
 
 button.primary:hover:not(:disabled) {
-  background: #2d4780;
+  background: #1d4ed8;
+  border-color: #1e40af;
 }
 
 button.active {
-  background: #1f4d38;
-  border-color: #3dd68c;
-  color: #d9ffe9;
+  background: var(--ok-soft);
+  border-color: var(--ok);
+  color: #d9fff0;
+  box-shadow: 0 0 0 1px rgba(45, 212, 160, 0.2);
+}
+
+button.primary.active {
+  background: #1a5a9e;
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(59, 158, 255, 0.25);
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
   padding: 0.5rem 0.65rem;
   outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 label {
@@ -91,6 +160,10 @@ label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* =============================================================================
+   Studio shell layout (structure unchanged — Phase 0 paint only)
+   ============================================================================= */
 
 .studio-root {
   display: grid;
@@ -117,12 +190,7 @@ label {
   min-width: 0;
   gap: 0.5rem;
   overflow: hidden;
-  /* Keep the game stage visually centered between side rails */
   align-items: center;
-}
-
-.studio-center .status-pill {
-  align-self: stretch;
 }
 
 .studio-center .live-view {
@@ -146,27 +214,23 @@ label {
   flex: 1;
   min-height: 0;
   height: 100%;
-  /* Match chat sidebar chrome */
   padding: 0.75rem;
 }
 
-/* Vertical sidebar stack (mirrors chat column, not under-game grid) */
 .studio-run-rail .stack {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
 }
 
-/* Override controls now live inline below the LiveView in the center column.
-   The .studio-footer was removed — controls moved into .studio-center. */
+/* Override controls live under LiveView in the center column */
 .studio-center .override-controls {
   flex: 0 0 auto;
   width: 100%;
   max-width: 960px;
-  margin: 0.5rem auto 0;
+  margin: 0.25rem auto 0;
 }
 
-/* Compact override header: heading + mode pill on one line */
 .override-header {
   display: flex;
   align-items: center;
@@ -184,7 +248,6 @@ label {
   letter-spacing: 0.06em;
 }
 
-/* Three buttons side by side, equal width */
 .override-buttons {
   gap: 0.4rem;
 }
@@ -194,13 +257,18 @@ label {
   min-width: 80px;
 }
 
+/* =============================================================================
+   Shared surfaces
+   ============================================================================= */
+
 .panel {
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-panel);
   padding: 0.85rem;
   min-height: 0;
   overflow: auto;
+  box-shadow: var(--shadow-panel);
 }
 
 .panel h2 {
@@ -237,8 +305,9 @@ label {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
+  background: rgba(7, 21, 40, 0.55);
   padding: 0.2rem 0.55rem;
   font-size: 0.75rem;
   color: var(--muted);
@@ -251,21 +320,43 @@ label {
   background: var(--muted);
 }
 
+.status-pill.ok {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
 .status-pill.ok .dot {
-  background: var(--accent-2);
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+
+.status-pill.warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
 }
 
 .status-pill.warn .dot {
   background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
 }
+
+.status-pill.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.status-pill.danger .dot {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+
+/* =============================================================================
+   Live view / emulator stage
+   ============================================================================= */
 
 .live-view {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  background: #0a0c10;
+  background: var(--panel);
   outline: none;
-  /* Fill the stage column so the viewport can grow */
   min-height: 0;
   overflow: hidden;
 }
@@ -285,15 +376,14 @@ label {
   min-width: 0;
 }
 
-/* Fixed slot on the right so fps/meta below never shift when errors appear. */
 .live-view-error {
   flex: 0 1 auto;
   max-width: min(55%, 16rem);
   margin: 0;
   padding: 0.15rem 0.45rem;
   border-radius: 6px;
-  border: 1px solid rgba(240, 113, 120, 0.45);
-  background: rgba(240, 113, 120, 0.12);
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
+  background: var(--danger-soft);
   color: var(--danger);
   font-size: 0.72rem;
   font-weight: 500;
@@ -306,17 +396,22 @@ label {
 
 .live-view > .live-meta {
   flex: 0 0 auto;
+  width: 100%;
 }
 
 .live-view-drive {
   border-color: var(--warn);
-  box-shadow: inset 0 0 0 1px rgba(240, 180, 41, 0.25);
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 0 0 1px rgba(240, 196, 20, 0.22);
 }
 
 .live-view-drive-focused {
-  border-color: var(--accent-2);
-  box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.35),
-    0 0 0 2px rgba(61, 214, 140, 0.15);
+  border-color: var(--ok);
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 0 0 1px rgba(45, 212, 160, 0.35),
+    0 0 0 2px rgba(45, 212, 160, 0.15);
 }
 
 .live-view:focus-visible {
@@ -324,7 +419,6 @@ label {
   outline-offset: 2px;
 }
 
-/* Grows to use all free panel space; image is letterboxed inside */
 .live-frame-viewport {
   flex: 1 1 auto;
   min-height: 12rem;
@@ -333,21 +427,22 @@ label {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--screen-bg);
+  border: 3px solid var(--bezel);
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 24px var(--bezel-glow);
 }
 
 .live-frame {
-  /* Absolute fill — avoids layout reflow / zoom pulse when frames swap */
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
   object-position: center;
-  /* Crisp GBA pixels when scaled */
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   background: #000;
@@ -369,35 +464,57 @@ label {
 }
 
 .ok-text {
-  color: var(--accent-2);
+  color: var(--ok);
   font-size: 0.8rem;
-}
-
-select {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 0.65rem;
-  outline: none;
-  color: inherit;
-  font: inherit;
-}
-
-select:focus {
-  border-color: var(--accent);
 }
 
 .live-meta {
   display: flex;
-  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
   flex-wrap: wrap;
-  justify-content: center;
+  width: 100%;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
-/* Hermes chat — default strip (legacy); sidebar is the primary layout */
+.live-meta-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 28rem);
+}
+
+.live-meta-status .status-pill {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.live-meta-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.live-meta-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem 0.9rem;
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* =============================================================================
+   Hermes chat
+   ============================================================================= */
+
 .chat-bar {
   display: flex;
   flex-direction: column;
@@ -426,15 +543,18 @@ select:focus {
   align-items: stretch;
   gap: 0.35rem;
   flex: 0 0 auto;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 0.15rem;
 }
 
 .chat-title {
   margin: 0;
   font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
+  font-weight: 700;
+  color: var(--text);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 
 .chat-bar-badges {
@@ -453,7 +573,7 @@ select:focus {
 .chat-messages {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.55rem;
   overflow: auto;
   min-height: 0;
   flex: 1 1 auto;
@@ -467,27 +587,40 @@ select:focus {
 
 .chat-bubble {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
   background: var(--panel-2);
   max-width: 92%;
+  box-shadow: 0 2px 8px rgba(0, 8, 24, 0.2);
 }
 
 .chat-bubble-user {
   align-self: flex-end;
-  background: #1c2a48;
-  border-color: #2f4a7a;
+  background: var(--bubble-user);
+  border-color: var(--bubble-user-border);
+  border-bottom-right-radius: 4px;
 }
 
 .chat-bubble-assistant {
   align-self: flex-start;
+  background: var(--bubble-ai);
+  border-color: var(--bubble-ai-border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble-assistant .chat-bubble-role {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.chat-bubble-assistant .chat-bubble-body {
+  color: #f0f7ff;
 }
 
 .chat-bubble-system {
   align-self: center;
   max-width: 100%;
-  background: #1a1f2a;
-  border-color: #3a4258;
+  background: var(--bubble-system);
+  border-color: var(--border-soft);
   border-style: dashed;
   text-align: center;
 }
@@ -509,7 +642,7 @@ select:focus {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.9rem;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .chat-compose {
@@ -518,6 +651,8 @@ select:focus {
   gap: 0.5rem;
   align-items: stretch;
   flex: 0 0 auto;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-soft);
 }
 
 .chat-bar-sidebar .chat-compose {
@@ -541,6 +676,7 @@ select:focus {
   min-height: 56px;
   max-height: 160px;
   resize: vertical;
+  background: var(--bg-deep);
 }
 
 .chat-bar-sidebar textarea {
@@ -577,9 +713,9 @@ select:focus {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.45rem 0.6rem;
-  border: 1px solid #6a3a1a;
-  border-radius: 8px;
-  background: #2a1c12;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  border-radius: var(--radius-control);
+  background: var(--warn-soft);
   color: var(--warn);
   font-size: 0.82rem;
   flex: 0 0 auto;
@@ -620,7 +756,10 @@ select:focus {
   word-break: break-all;
 }
 
-/* Collapsible run-rail sections */
+/* =============================================================================
+   Collapsible run-rail sections
+   ============================================================================= */
+
 .collapsible-section {
   display: flex;
   flex-direction: column;
@@ -635,13 +774,13 @@ select:focus {
   user-select: none;
   padding: 0.35rem 0.5rem;
   margin: -0.35rem -0.5rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid transparent;
 }
 
 .collapsible-header:hover {
-  border-color: var(--border);
-  background: rgba(91, 139, 255, 0.05);
+  border-color: var(--border-soft);
+  background: var(--accent-soft);
 }
 
 .collapsible-header:focus-visible {
@@ -666,31 +805,31 @@ select:focus {
   transform: rotate(90deg);
 }
 
-.collapsible-header[aria-expanded="true"] .collapsible-chevron {
-  transform: rotate(90deg);
-}
-
 .collapsible-content {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
 }
 
-/* Hermes hard connect gate — full viewport until gateway is reachable */
+/* =============================================================================
+   Hermes hard connect gate
+   ============================================================================= */
+
 .hermes-gate {
   display: grid;
   place-items: center;
   min-height: 100vh;
   width: 100%;
   padding: 1.25rem;
-  background: var(--bg);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
 .hermes-gate-card {
   width: 100%;
   max-width: 28rem;
   padding: 1.35rem 1.4rem 1.25rem;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-gate);
+  border-color: var(--border-strong);
 }
 
 .hermes-gate-card h1 {
@@ -698,6 +837,7 @@ select:focus {
   font-size: 1.25rem;
   font-weight: 650;
   letter-spacing: 0.01em;
+  color: var(--text);
 }
 
 .hermes-gate-card > .muted {
@@ -719,4 +859,301 @@ select:focus {
 
 .hermes-gate-actions > button {
   flex: 1 1 auto;
+}
+
+.gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.gate-actions > button {
+  flex: 1 1 auto;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--border-soft);
+  color: var(--muted);
+}
+
+.gate-checklist {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+
+.field {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.field > span {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.avatar-pick {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.avatar-pick legend {
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.avatar-pick label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 1rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.student-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.student-list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+}
+
+.agent-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+}
+
+.agent-avatar.large {
+  width: 3.5rem;
+  height: 3.5rem;
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.agent-avatar.ga {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.agent-avatar.student.boy {
+  background: rgba(59, 158, 255, 0.2);
+}
+
+.agent-avatar.student.girl {
+  background: rgba(236, 72, 153, 0.18);
+  border-color: #db2777;
+}
+
+.agent-avatar .unread-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 1px solid var(--bg);
+}
+
+.chat-agent-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.agent-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+}
+
+.agent-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.agent-tab.disabled,
+.agent-tab:disabled {
+  opacity: 0.4;
+}
+
+.agent-tab-label {
+  font-size: 0.78rem;
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-switcher {
+  margin-left: auto;
+  padding: 0.3rem 0.5rem;
+}
+
+.chat-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-control);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.small {
+  font-size: 0.78rem;
+}
+
+.block {
+  display: block;
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.35rem 0;
+}
+
+/* =============================================================================
+   Student cutscene — full page, game as PIP top-right
+   ============================================================================= */
+
+.studio-root.studio-cutscene-mode .studio-main {
+  grid-template-columns: 1fr;
+  position: relative;
+  min-height: 100vh;
+}
+
+.studio-center.cutscene-pip {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 40;
+  width: min(280px, 32vw);
+  max-height: 40vh;
+  gap: 0.25rem;
+  align-items: stretch;
+  pointer-events: auto;
+}
+
+.studio-center.cutscene-pip .live-view {
+  max-width: none;
+  width: 100%;
+  min-height: 140px;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-gate);
+  overflow: hidden;
+}
+
+.studio-cutscene-slot {
+  grid-column: 1 / -1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  padding-top: 2rem;
+}
+
+.student-cutscene {
+  width: 100%;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.cutscene-panel {
+  padding: 1.5rem 1.5rem 1.35rem;
+  box-shadow: var(--shadow-gate);
+  border-color: var(--border-strong);
+}
+
+.cutscene-kicker {
+  margin: 0 0 0.25rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cutscene-panel h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.35rem;
+}
+
+.cutscene-dialogue {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  margin: 1rem 0;
+}
+
+.cutscene-speech {
+  flex: 1;
+  min-width: 0;
+}
+
+.cutscene-progress {
+  margin: 0.35rem 0 0;
+}
+
+/* Scrollbars — subtle blue chrome */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
 }

@@ -66,6 +66,7 @@ export async function handleRequest(
     }
 
     if (method === "GET" && p === "/health") {
+      ctx.activity?.recordHealth();
       return send(res, 200, {
         ok: true,
         api_version: API_VERSION,
@@ -73,6 +74,14 @@ export async function handleRequest(
         emulator: ctx.backend.isRomLoaded() ? ctx.backend.kind : "none",
         rom_loaded: ctx.backend.isRomLoaded(),
         run_id: ctx.getRunId(),
+        activity: ctx.activity?.getSnapshot() ?? null,
+      });
+    }
+
+    if (method === "GET" && p === "/activity") {
+      return send(res, 200, {
+        ok: true,
+        activity: ctx.activity?.getSnapshot() ?? null,
       });
     }
 
@@ -118,6 +127,7 @@ export async function handleRequest(
       if (!frame) {
         return send(res, 404, { ok: false, error: "no frame yet" });
       }
+      ctx.activity?.recordSnapshot();
       const age_ms = ctx.capture.getAgeMs() ?? 0;
       return send(res, 200, {
         mime: "image/png",
@@ -137,6 +147,7 @@ export async function handleRequest(
       }
       try {
         const frame = await ctx.capture.forceCapture();
+        ctx.activity?.recordSnapshot();
         const age_ms = ctx.capture.getAgeMs() ?? 0;
         return send(res, 200, {
           mime: "image/png",
@@ -148,6 +159,9 @@ export async function handleRequest(
           age_ms,
         });
       } catch (e) {
+        ctx.activity?.recordError(
+          e instanceof Error ? e.message : String(e)
+        );
         return send(res, 502, {
           ok: false,
           error: e instanceof Error ? e.message : String(e),
@@ -217,6 +231,7 @@ export async function handleRequest(
 
     if (method === "POST" && p === "/input") {
       if (ctx.mode.get() !== "agent") {
+        ctx.activity?.recordError(`input blocked: mode is ${ctx.mode.get()}`);
         return send(res, 409, {
           ok: false,
           error: `input blocked: mode is ${ctx.mode.get()}`,
@@ -224,14 +239,17 @@ export async function handleRequest(
         });
       }
       if (!ctx.backend.isRomLoaded()) {
+        ctx.activity?.recordError("rom not loaded");
         return send(res, 409, { ok: false, error: "rom not loaded" });
       }
       const body = (await readJson(req)) as { buttons?: Button[] };
       const buttons = body.buttons || [];
       if (!Array.isArray(buttons) || buttons.length === 0) {
+        ctx.activity?.recordError("buttons required");
         return send(res, 400, { ok: false, error: "buttons required" });
       }
       if (buttons.length > 5) {
+        ctx.activity?.recordError("max 5 buttons per request");
         return send(res, 400, {
           ok: false,
           error: "max 5 buttons per request",
@@ -239,10 +257,12 @@ export async function handleRequest(
       }
       for (const b of buttons) {
         if (!VALID_BUTTONS.has(b)) {
+          ctx.activity?.recordError(`invalid button: ${b}`);
           return send(res, 400, { ok: false, error: `invalid button: ${b}` });
         }
       }
       await ctx.backend.press(buttons);
+      ctx.activity?.recordInput(buttons);
       return send(res, 200, {
         ok: true,
         executed: buttons,

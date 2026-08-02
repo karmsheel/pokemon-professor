@@ -30,15 +30,35 @@ afterEach(() => {
 
 describe("hermesConfig", () => {
   it("defaults to local gateway on 8642", () => {
+    const prevLocal = process.env.LOCALAPPDATA;
+    const prevHome = process.env.HOME;
+    const prevUser = process.env.USERPROFILE;
+    const prevFile = process.env.PP_HERMES_ENV_FILE;
+    // Isolate from a real Hermes install on the machine
+    process.env.LOCALAPPDATA = require("os").tmpdir() + "/pp-no-hermes-local";
+    process.env.HOME = require("os").tmpdir() + "/pp-no-hermes-home";
+    process.env.USERPROFILE = require("os").tmpdir() + "/pp-no-hermes-home";
+    process.env.PP_HERMES_ENV_FILE = require("os").tmpdir() + "/pp-no-hermes.env";
     pushEnv({
       HERMES_BASE_URL: undefined,
       HERMES_API_KEY: undefined,
       HERMES_MODEL: undefined,
     });
-    const cfg = hermesConfig();
-    expect(cfg.baseUrl).toBe("http://127.0.0.1:8642");
-    expect(cfg.apiKey).toBe("");
-    expect(cfg.model).toBe("hermes-agent");
+    try {
+      const cfg = hermesConfig();
+      expect(cfg.baseUrl).toBe("http://127.0.0.1:8642");
+      expect(cfg.apiKey).toBe("");
+      expect(cfg.model).toBe("hermes-agent");
+    } finally {
+      if (prevLocal === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = prevLocal;
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevUser === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevUser;
+      if (prevFile === undefined) delete process.env.PP_HERMES_ENV_FILE;
+      else process.env.PP_HERMES_ENV_FILE = prevFile;
+    }
   });
 });
 

@@ -27,18 +27,31 @@ import {
   loadStudioSettings,
   saveStudioSettings,
 } from "./settings-store";
+import { restartHermesGateway } from "./hermes-gateway";
+import {
+  detectHermesApiServerEnv,
+  fillHermesAuthGaps,
+} from "../lib/hermes-env";
 import {
   HERMES_DOCS_URL,
   isValidHermesBaseUrl,
   normalizeHermesSettings,
   type HermesSettings,
 } from "../lib/hermes-settings";
+import { StudentStore } from "./students/store";
+import { AgentRuntime } from "./agents/agent-runtime";
+import { probeHermesAcp } from "./agents/hermes-cli";
+import type { StudentAvatar } from "./students/types";
+import { ControlActivityTracker } from "./control-api/activity";
+import { installPokemonProfessorSkill } from "./agents/hermes-skills";
 
 let mainWindow: BrowserWindow | null = null;
 let controlUrl = "";
 let backend: EmulatorBackend;
 let mode: ModeMachine;
 let store: RunStore;
+let studentStore: StudentStore;
+let agentRuntime: AgentRuntime;
 let currentRunId: string | null = null;
 let layout: ReturnType<typeof appLayout>;
 let emulatorChoice: "mock" | "mgba" = "mock";
@@ -91,6 +104,8 @@ function setBackend(next: EmulatorBackend) {
 async function bootstrap() {
   layout = appLayout(app.getPath("userData"));
   store = new RunStore(layout.runs);
+  studentStore = new StudentStore(app.getPath("userData"));
+  agentRuntime = new AgentRuntime(studentStore);
   mode = new ModeMachine();
   emulatorChoice = resolveEmulatorChoice(app.getPath("userData"));
   backend = createBackend(emulatorChoice, app.getPath("userData"));
@@ -104,6 +119,7 @@ async function bootstrap() {
     getRunId: () => currentRunId,
     getSaveDir: () =>
       currentRunId ? layout.saves(currentRunId) : path.join(layout.root, "orphan-saves"),
+    activity: new ControlActivityTracker(),
   };
 
   const server = await createControlServer(controlCtx, {
@@ -111,6 +127,29 @@ async function bootstrap() {
     port: 7946,
   });
   controlUrl = server.url;
+  agentRuntime.setControlUrl(controlUrl);
+
+  // Hermes ACP: install play skill into ~/.hermes/skills (and coder profile)
+  try {
+    const skillInstall = installPokemonProfessorSkill();
+    if (skillInstall.errors.length) {
+      process.stderr.write(
+        `[skills] install warnings: ${skillInstall.errors.join("; ")}\n`
+      );
+    } else {
+      process.stderr.write(
+        `[skills] pokemon-professor → ${skillInstall.installed.length} path(s)\n`
+      );
+    }
+  } catch (e) {
+    process.stderr.write(
+      `[skills] install failed: ${e instanceof Error ? e.message : String(e)}\n`
+    );
+  }
+
+  agentRuntime.on("event", (payload) => {
+    mainWindow?.webContents.send("studio:agentEvent", payload);
+  });
 
   // Headless E2E hook: POST /run starts a run exactly like studio:createRun.
   controlCtx.startRun = async (romPath: string) => {
@@ -442,7 +481,22 @@ async function bootstrap() {
     const file = await backend.saveState(name, layout.saves(currentRunId));
     store.registerSavestate(currentRunId, name);
     store.appendEvent(currentRunId, { type: "savestate", detail: { name } });
-    return { name, path: file };
+
+    // First in-game save menu success → durable Student save + session.
+    const activeStudentId = studentStore.getActiveStudentId();
+    let promoted: { saveId: string; sessionId: string } | null = null;
+    if (activeStudentId) {
+      try {
+        promoted = agentRuntime.markFirstSaveSuccess(activeStudentId, file);
+        mainWindow?.webContents.send("studio:firstSavePromoted", {
+          studentId: activeStudentId,
+          ...promoted,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+    return { name, path: file, promoted };
   });
   ipcMain.handle("studio:load", async (_e, name: string) => {
     if (!currentRunId) throw new Error("no active run");
@@ -467,16 +521,58 @@ async function bootstrap() {
     return { ok: true };
   });
 
+  /**
+   * Fill blank Hermes apiKey/baseUrl from process env + Hermes Agent .env
+   * (API_SERVER_KEY / API_SERVER_PORT). Persist when we discover a key so the
+   * gate does not force users to paste secrets.
+   */
+  function hydrateHermesSettings(settings: ReturnType<typeof loadStudioSettings>) {
+    const filled = fillHermesAuthGaps(settings.hermes);
+    const hermes = normalizeHermesSettings({
+      baseUrl: filled.baseUrl,
+      apiKey: filled.apiKey,
+      model: filled.model,
+    });
+    const changed =
+      hermes.apiKey !== settings.hermes.apiKey ||
+      hermes.baseUrl !== settings.hermes.baseUrl ||
+      hermes.model !== settings.hermes.model;
+    return {
+      settings: { ...settings, hermes },
+      changed,
+      apiKeySource: filled.apiKeySource,
+    };
+  }
+
   ipcMain.handle("studio:getSettings", () => {
     const userData = app.getPath("userData");
-    const settings = loadStudioSettings(userData);
+    let settings = loadStudioSettings(userData);
     // Drop stale lastRomPath if the file was moved/deleted since last session.
     if (settings.lastRomPath && !fs.existsSync(settings.lastRomPath)) {
-      const cleaned = { ...settings, lastRomPath: null };
-      saveStudioSettings(userData, cleaned);
-      return cleaned;
+      settings = { ...settings, lastRomPath: null };
+      saveStudioSettings(userData, settings);
     }
-    return settings;
+    const hydrated = hydrateHermesSettings(settings);
+    if (hydrated.changed) {
+      saveStudioSettings(userData, hydrated.settings);
+    }
+    return hydrated.settings;
+  });
+
+  ipcMain.handle("studio:detectHermesEnv", () => {
+    const detected = detectHermesApiServerEnv();
+    const filled = fillHermesAuthGaps({});
+    return {
+      detected,
+      filled: {
+        baseUrl: filled.baseUrl,
+        apiKey: filled.apiKey,
+        model: filled.model,
+      },
+      apiKeySource: filled.apiKeySource,
+      /** Masked for UI — never log full key in renderer status. */
+      apiKeyConfigured: Boolean(filled.apiKey),
+    };
   });
 
   ipcMain.handle(
@@ -484,7 +580,14 @@ async function bootstrap() {
     (_e, partial: Partial<HermesSettings>) => {
       const userData = app.getPath("userData");
       const cur = loadStudioSettings(userData);
-      const hermes = normalizeHermesSettings({ ...cur.hermes, ...partial });
+      // If caller clears apiKey, re-fill from Hermes env instead of saving blank.
+      const merged = { ...cur.hermes, ...partial };
+      const filled = fillHermesAuthGaps(merged);
+      const hermes = normalizeHermesSettings({
+        baseUrl: filled.baseUrl,
+        apiKey: filled.apiKey || merged.apiKey,
+        model: filled.model,
+      });
       if (!isValidHermesBaseUrl(hermes.baseUrl)) {
         throw new Error("Invalid Hermes base URL (use http:// or https://)");
       }
@@ -510,45 +613,203 @@ async function bootstrap() {
   });
 
   ipcMain.handle(
-    "studio:probeHermes",
+    "studio:restartHermesGateway",
     async (_e, override?: Partial<HermesSettings>) => {
       const cur = loadStudioSettings(app.getPath("userData"));
       const hermes = normalizeHermesSettings({ ...cur.hermes, ...override });
       if (!isValidHermesBaseUrl(hermes.baseUrl)) {
         return {
-          ok: false,
-          error: "invalid_url",
-          hint: "Enter a valid http(s) Hermes URL",
+          ok: false as const,
+          message: "Enter a valid http(s) Hermes URL before restarting.",
         };
       }
-      try {
-        const res = await fetch(
-          `${hermes.baseUrl.replace(/\/$/, "")}/health`,
-          {
-            method: "GET",
-            signal: AbortSignal.timeout(3000),
-            headers: hermes.apiKey
-              ? { Authorization: `Bearer ${hermes.apiKey}` }
-              : undefined,
-          }
-        );
-        if (!res.ok) {
-          return {
-            ok: false,
-            error: "hermes_unavailable",
-            hint: "Hermes returned an error — is the gateway running?",
-          };
-        }
-        return { ok: true as const };
-      } catch {
-        return {
-          ok: false,
-          error: "hermes_unavailable",
-          hint: "Cannot reach Hermes — start the gateway, then Retry",
-        };
-      }
+      return restartHermesGateway({
+        baseUrl: hermes.baseUrl,
+        apiKey: hermes.apiKey,
+      });
     }
   );
+
+  /** Primary gate: Hermes CLI + `hermes acp --check` (gateway disabled). */
+  ipcMain.handle("studio:probeHermesAcp", async () => {
+    return probeHermesAcp();
+  });
+
+  // Legacy name kept for older UI bits — now ACP check, not gateway HTTP.
+  ipcMain.handle(
+    "studio:probeHermes",
+    async (_e, _override?: Partial<HermesSettings>) => {
+      const r = await probeHermesAcp();
+      if (r.ok) return { ok: true as const, cli: r.cli };
+      return {
+        ok: false,
+        error: r.error,
+        hint: r.hint,
+        cli: r.cli,
+      };
+    }
+  );
+
+  // ── Students + dual-agent (GA / Student) ─────────────────────────────────
+
+  ipcMain.handle("studio:listStudents", () => {
+    const index = studentStore.loadIndex();
+    return {
+      students: index.students,
+      activeStudentId: index.activeStudentId,
+      metGa: index.metGa,
+    };
+  });
+
+  ipcMain.handle("studio:setMetGa", (_e, met: boolean) => {
+    return studentStore.setMetGa(Boolean(met));
+  });
+
+  ipcMain.handle(
+    "studio:createStudent",
+    (
+      _e,
+      input: { name: string; avatar: StudentAvatar; backstory?: string }
+    ) => {
+      return studentStore.createStudent(input);
+    }
+  );
+
+  ipcMain.handle(
+    "studio:updateStudent",
+    (
+      _e,
+      id: string,
+      patch: Partial<{ name: string; avatar: StudentAvatar; backstory: string }>
+    ) => {
+      return studentStore.updateStudent(id, patch);
+    }
+  );
+
+  ipcMain.handle("studio:setActiveStudent", async (_e, id: string | null) => {
+    if (agentRuntime.isGameStarted()) {
+      throw new Error("Cannot switch Student while a game is running");
+    }
+    return studentStore.setActiveStudentId(id);
+  });
+
+  ipcMain.handle("studio:getGaThread", () => {
+    agentRuntime.seedGaWelcomeIfEmpty();
+    return studentStore.loadGaThread();
+  });
+
+  ipcMain.handle("studio:ensureGa", async () => {
+    agentRuntime.seedGaWelcomeIfEmpty();
+    try {
+      await agentRuntime.ensureGa();
+    } catch {
+      /* ACP warm-up non-fatal; welcome text still available */
+    }
+    return studentStore.loadGaThread();
+  });
+
+  ipcMain.handle("studio:getStudentPlaySession", (_e, studentId: string) => {
+    const student = studentStore.getStudent(studentId);
+    if (!student) return null;
+    if (student.lastUsedSaveId) {
+      const save = studentStore.getSave(studentId, student.lastUsedSaveId);
+      if (save?.lastSessionId) {
+        const session = studentStore.loadSession(
+          studentId,
+          save.id,
+          save.lastSessionId
+        );
+        if (session) {
+          return { provisional: false, save, session };
+        }
+      }
+    }
+    const provisional = studentStore.loadProvisionalSession(studentId);
+    if (provisional) {
+      return { provisional: true, save: null, session: provisional };
+    }
+    return {
+      provisional: true,
+      save: null,
+      session: null,
+      gameStarted: agentRuntime.isGameStarted(),
+    };
+  });
+
+  ipcMain.handle("studio:sendGaMessage", async (_e, text: string) => {
+    return agentRuntime.sendGa(text);
+  });
+
+  ipcMain.handle(
+    "studio:sendStudentMessage",
+    async (_e, studentId: string, text: string) => {
+      return agentRuntime.sendStudent(studentId, text);
+    }
+  );
+
+  ipcMain.handle(
+    "studio:startStudentPlay",
+    async (
+      _e,
+      studentId: string,
+      opts?: { missionBrief?: string }
+    ) => {
+      agentRuntime.setControlUrl(controlUrl);
+      return agentRuntime.startStudentPlay(studentId, opts);
+    }
+  );
+
+  ipcMain.handle(
+    "studio:seedStudentIntro",
+    (
+      _e,
+      studentId: string,
+      messages: Array<{ role: "user" | "assistant" | "system"; content: string }>
+    ) => {
+      return studentStore.seedIntroConversation(studentId, messages);
+    }
+  );
+
+  ipcMain.handle(
+    "studio:completeStudentCutscene",
+    async (
+      _e,
+      input: {
+        name: string;
+        avatar: StudentAvatar;
+        missionBrief: string;
+        introMessages: Array<{
+          role: "user" | "assistant" | "system";
+          content: string;
+        }>;
+      }
+    ) => {
+      // Create Student + intro first so cutscene never depends on model latency.
+      const student = studentStore.createStudent({
+        name: input.name,
+        avatar: input.avatar,
+        backstory: input.missionBrief,
+      });
+      studentStore.seedIntroConversation(student.id, input.introMessages);
+      agentRuntime.setControlUrl(controlUrl);
+
+      // Spawns hermes acp + queues first play turn in background.
+      // Does NOT wait for the full agent reply (that was freezing "Connecting Student…").
+      const play = await agentRuntime.startStudentPlay(student.id, {
+        missionBrief: input.missionBrief,
+        waitForFirstReply: false,
+      });
+      return {
+        student: play.student,
+        provisional: play.provisional,
+        session: play.session,
+      };
+    }
+  );
+
+  ipcMain.handle("studio:stopStudentPlay", async () => {
+    return agentRuntime.stopStudent();
+  });
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -581,4 +842,35 @@ app.on("before-quit", () => {
   capture?.stop();
   // stop() only kills mGBA if Studio spawned it (attach leaves external mGBA running)
   void backend?.stop().catch(() => undefined);
+  void (async () => {
+    try {
+      const r = await agentRuntime?.stopStudent();
+      if (r?.discardedProvisional) {
+        // Student setup is kept; flag for toast on next launch.
+        const flag = path.join(app.getPath("userData"), "provisional-discarded.json");
+        fs.writeFileSync(
+          flag,
+          JSON.stringify({ at: new Date().toISOString() }),
+          "utf8"
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+    await agentRuntime?.shutdown().catch(() => undefined);
+  })();
+});
+
+ipcMain.handle("studio:consumeProvisionalDiscardToast", () => {
+  const flag = path.join(app.getPath("userData"), "provisional-discarded.json");
+  if (!fs.existsSync(flag)) return null;
+  try {
+    fs.unlinkSync(flag);
+  } catch {
+    /* ignore */
+  }
+  return {
+    message:
+      "Game progress before the first save menu wasn't kept. Your Student setup is safe — load the ROM and Start game to continue.",
+  };
 });

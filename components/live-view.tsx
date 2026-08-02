@@ -8,6 +8,10 @@ type ControlMode = "agent" | "nudge" | "drive";
 type LiveViewProps = {
   controlUrl: string | null;
   mode?: ControlMode;
+  /** Emulator/health summary shown under the viewport (left). */
+  healthNote?: string | null;
+  /** Pill tone for healthNote (ok / warn / danger). */
+  healthTone?: "ok" | "warn" | "danger";
 };
 
 /**
@@ -20,7 +24,12 @@ const MIN_POLL_GAP_MS = 16;
 /** Only surface stream errors after several consecutive failures (avoids flash). */
 const ERROR_STREAK_SHOW = 3;
 
-export function LiveView({ controlUrl, mode = "agent" }: LiveViewProps) {
+export function LiveView({
+  controlUrl,
+  mode = "agent",
+  healthNote = null,
+  healthTone = "ok",
+}: LiveViewProps) {
   const [fps, setFps] = useState<number | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -277,25 +286,41 @@ export function LiveView({ controlUrl, mode = "agent" }: LiveViewProps) {
         ) : null}
       </div>
       <div className="live-meta">
-        <span title="Painted frames in the last second">
-          fps: {fps != null ? fps : "—"}
-        </span>
-        <span>
-          native: {size ? `${size.w}×${size.h}` : "—"} (scaled to fit)
-        </span>
-        <span className="muted" title="Max backpressure poll (shared frame buffer)">
-          stream: max
-        </span>
-        {ageMs != null ? (
-          <span className="muted" title="Age of buffer frame (x-captured-at)">
-            age: {ageMs}ms
+        <div className="live-meta-status">
+          {healthNote ? (
+            <div
+              className={`status-pill ${healthTone}`}
+              data-testid="live-health-pill"
+            >
+              <span className="dot" />
+              <span className="live-meta-status-text">{healthNote}</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="live-meta-stats">
+          <span title="Painted frames in the last second">
+            fps: {fps != null ? fps : "—"}
           </span>
-        ) : null}
-        {driveActive ? (
-          <span className="ok-text">
-            {focused ? "keys armed" : "click to focus keys"}
+          <span>
+            native: {size ? `${size.w}×${size.h}` : "—"} (scaled to fit)
           </span>
-        ) : null}
+          <span
+            className="muted"
+            title="Max backpressure poll (shared frame buffer)"
+          >
+            stream: max
+          </span>
+          {ageMs != null ? (
+            <span className="muted" title="Age of buffer frame (x-captured-at)">
+              age: {ageMs}ms
+            </span>
+          ) : null}
+          {driveActive ? (
+            <span className="ok-text">
+              {focused ? "keys armed" : "click to focus keys"}
+            </span>
+          ) : null}
+        </div>
       </div>
     </section>
   );
